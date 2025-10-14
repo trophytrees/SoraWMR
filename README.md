@@ -15,6 +15,14 @@ https://github.com/user-attachments/assets/3c850ff1-b8e3-41af-a46f-2c734406e77d
 
 ⭐️: **Yolo weights has been updated, try the new version watermark detect model, it should work better.**
 
+## Features
+
+- **High fidelity removal pipeline**: YOLOv11-based detector with automatic weight downloads, device selection, missed-frame backfilling, adaptive padding, LaMa inpainting, and feathered alpha blending while preserving original audio via ffmpeg remux.
+- **Turnkey Python + CLI tooling**: Simple `SoraWM().run` API with progress callbacks, `example.py` usage, detection preview generation, visualization script, and helpers for metadata, thumbnails, and per-frame exports.
+- **Interactive Streamlit app**: Drag-and-drop uploads, live progress telemetry, staged status messaging, inline playback, and one-click downloads of cleaned videos.
+- **Production FastAPI service**: Queue-backed worker with SQLite tracking, background thumbnails, `/submit_remove_task` → `/get_results` → `/download` endpoints, automatic model reloads, and OpenAPI docs.
+- **Integrated web workspace**: Jinja/Tailwind dashboard for video library management, job monitoring, detection previews, manual annotation studio, Roboflow auto-labeling, YOLO fine-tuning launches, dataset summaries, and output browsing.
+- **Model and dataset ops**: Weight activation/rename/delete with backups, Cog/Replicate packaging, fine-tuning scripts, `tools/backup_assets.py`, `tools/export_missed_frames.py`, and Roboflow automation CLI for continuous improvement.
 
 ## 1. Method
 
