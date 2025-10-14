@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>SoraWMR Control Center</title>
+    <title>SoraWMR Workspace</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script>
         tailwind.config = {
@@ -14,6 +14,7 @@
                     },
                     colors: {
                         primary: "#38bdf8",
+                        slateglass: "rgba(15, 23, 42, 0.7)",
                     },
                 },
             },
@@ -22,388 +23,624 @@
     <link rel="stylesheet" href="/static/css/styles.css" />
 </head>
 <body class="min-h-screen bg-slate-950 font-display text-slate-100 antialiased">
-    <div class="relative overflow-hidden">
-        <div class="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(56,189,248,0.18),transparent_55%)]"></div>
-        <div class="absolute inset-x-0 top-0 h-72 bg-gradient-to-b from-slate-900/70 via-slate-900/40 to-transparent"></div>
+    <div class="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
+        <div class="absolute -top-48 left-1/2 h-[560px] w-[560px] -translate-x-1/2 rounded-full bg-primary/15 blur-[180px]"></div>
+        <div class="absolute bottom-[-240px] right-[-200px] h-[460px] w-[460px] rounded-full bg-primary/10 blur-[160px]"></div>
+        <div class="absolute inset-x-0 top-0 h-96 bg-gradient-to-b from-slate-900/80 via-slate-900/20 to-transparent"></div>
+    </div>
 
-        <div class="relative z-10">
-            <header class="mx-auto max-w-7xl px-6 pt-10 pb-8">
-                <div class="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
-                    <div class="space-y-4">
-                        <span class="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.35em] text-slate-200/70">SoraWMR dApp</span>
-                        <h1 class="text-3xl font-semibold text-white lg:text-4xl">Watermark Removal Command Deck</h1>
-                        <p class="max-w-2xl text-sm text-slate-200/80">
-                            Launch removals, run previews, curate annotations, and manage models without leaving the top fold. Everything updates live for rapid iteration.
-                        </p>
-                    </div>
-                    <div class="flex flex-wrap items-center gap-3">
-                        <span class="header-chip">Live queue refreshes every 6s</span>
-                        <span class="header-chip">Active weights sync automatically</span>
-                    </div>
+    <div class="relative z-10 mx-auto max-w-[1600px] px-6 pb-12 pt-10 space-y-8">
+        <header class="rounded-3xl border border-white/10 bg-slateglass/60 px-8 py-7 backdrop-blur">
+            <div class="grid gap-8 xl:grid-cols-12">
+                <div class="space-y-3 xl:col-span-8">
+                    <span class="tracking-[0.45em] text-[0.6rem] uppercase text-slate-300/80">Sora watermark removal</span>
+                    <h1 class="text-[2.05rem] font-semibold text-white sm:text-[2.3rem] xl:text-[2.4rem]">Unified cleaning &amp; training control center</h1>
+                    <p class="max-w-3xl text-[0.86rem] leading-relaxed text-slate-300">
+                        Launch removal jobs, inspect detections, curate annotations, and fine-tune models without losing context. Everything updates live so you always know what happens next.
+                    </p>
                 </div>
-            </header>
+                <div class="grid gap-2 text-[0.62rem] font-semibold uppercase tracking-[0.28em] text-slate-300/80 sm:grid-cols-2 xl:col-span-4">
+                    <span class="hero-chip text-center">Live queue refresh · 6s</span>
+                    <span class="hero-chip text-center">Auto model sync</span>
+                    <span class="hero-chip text-center">Dataset-aware annotation</span>
+                    <span class="hero-chip text-center">Training telemetry</span>
+                </div>
+            </div>
+        </header>
 
-            <main class="mx-auto max-w-7xl px-6 pb-16">
-                <div class="grid gap-6 lg:grid-cols-[320px,minmax(0,1fr)]">
-                    <aside class="flex flex-col gap-6">
-                        <section class="glass-panel p-6 space-y-4">
-                            <div class="flex items-center justify-between gap-3">
-                                <h2 class="section-title">Active Detector</h2>
-                                <span class="badge badge-live">Live</span>
+        <div class="grid gap-5 xl:grid-cols-12">
+            <div class="space-y-5 xl:col-span-8">
+                <section class="glass-card space-y-6">
+                    <div class="card-header">
+                        <div>
+                            <p class="card-kicker">Step 1</p>
+                            <h2 class="card-title">Upload &amp; clean a video</h2>
+                            <p class="card-subtitle">Pick detector weights, add a clip, and let the cleaner take over. The queue below updates instantly.</p>
+                        </div>
+                    </div>
+                    <div class="card-body space-y-6">
+                        <div class="action-form space-y-4" id="video-library-panel">
+                            <div class="section-heading">
+                                <h3>Video library</h3>
+                                <p>Pick the clip you want to clean, preview, or annotate.</p>
                             </div>
-                            <p class="text-xs text-slate-300/80">The currently deployed weights power previews, removals, and training runs.</p>
-                            <div id="model-indicator" class="model-indicator-block">Active weights: <code>resources/best.pt</code></div>
-                        </section>
-
-                        <section class="glass-panel p-6 space-y-4">
-                            <div class="flex items-center justify-between gap-3">
-                                <h2 class="section-title">Model Catalog</h2>
-                                <button type="button" id="models-panel-toggle" class="chip-button" aria-expanded="false">Browse</button>
+                            <div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                                <label class="form-field">
+                                    <span class="field-label">Active video</span>
+                                    <select id="active-video-select" class="input-control">
+                                        <option value="">Loading library…</option>
+                                    </select>
+                                    <span id="active-video-hint" class="field-hint">The active video drives the annotation studio and preview player.</span>
+                                </label>
+                                <label class="form-field">
+                                    <span class="field-label">Manage uploads</span>
+                                    <select id="video-library-select" class="input-control" multiple size="5" aria-label="Uploaded videos"></select>
+                                    <span class="field-hint">Select one or more videos to remove from the library.</span>
+                                </label>
                             </div>
-                            <p class="text-xs text-slate-300/80">Set active weights or retire old checkpoints without scrolling.</p>
-                            <div id="models-panel" class="model-panel hidden">
-                                <div class="model-panel-inner">
-                                    <table class="model-table text-xs">
-                                        <thead>
-                                            <tr>
-                                                <th>Model</th>
-                                                <th>Location</th>
-                                                <th>Updated</th>
-                                                <th>Size</th>
-                                                <th>Status</th>
-                                                <th></th>
-                                            </tr>
-                                        </thead>
-                                        <tbody id="models-table"></tbody>
-                                    </table>
-                                </div>
-                            </div>
-                        </section>
-
-                        <section class="glass-panel p-6 space-y-4">
-                            <div class="flex items-center justify-between gap-3">
-                                <h2 class="section-title">Finished Videos</h2>
-                                <span class="text-[11px] font-semibold uppercase tracking-widest text-slate-300/70">Instant access</span>
-                            </div>
-                            <p class="text-xs text-slate-300/80">Completed removals land here as compact tiles with quick preview and downloads.</p>
-                            <ul id="finished-list" class="stacked-list"></ul>
-                            <p id="finished-empty" class="empty-state text-xs text-slate-400/80">Render a clip to see it appear here.</p>
-                        </section>
-                    </aside>
-
-                    <section class="glass-panel overflow-hidden p-0">
-                        <nav class="tab-nav" role="tablist" id="workspace-tabs">
-                            <button class="tab-button" data-tab="workflow" aria-selected="true">Workflow</button>
-                            <button class="tab-button" data-tab="annotate" aria-selected="false">Annotate</button>
-                            <button class="tab-button" data-tab="training" aria-selected="false">Training</button>
-                        </nav>
-
-                        <div class="tab-panels">
-                            <div class="tab-panel" data-tab-panel="workflow">
-                                <div class="panel-grid">
-                                    <article class="module-card">
-                                        <header>
-                                            <h3>Upload &amp; Clean</h3>
-                                            <p>Queue a clip for watermark removal with compact controls.</p>
-                                        </header>
-                                        <form id="clean-form" class="form-stack" enctype="multipart/form-data">
-                                            <label class="form-field">
-                                                <div class="field-head">
-                                                    <span>Detector weights</span>
-                                                    <span id="clean-model-selected-badge" class="badge badge-new hidden">New</span>
-                                                </div>
-                                                <select id="clean-model" class="glass-input">
-                                                    <option value="">Loading models…</option>
-                                                </select>
-                                                <span id="clean-model-hint" class="hint-text">Selecting a weight activates it for upcoming removal jobs.</span>
-                                            </label>
-                                            <label class="form-field">
-                                                <span class="field-head">Video file</span>
-                                                <input type="file" name="video" accept="video/*" required class="glass-input glass-input-file" />
-                                            </label>
-                                            <button type="submit" class="btn-primary w-full">Queue removal</button>
-                                            <p class="support-text">Tasks run asynchronously—feel free to jump into previews or annotations while it processes.</p>
-                                        </form>
-                                    </article>
-
-                                    <article class="module-card">
-                                        <header>
-                                            <h3>Detection Preview</h3>
-                                            <p>Overlay detections on any upload to double-check coverage.</p>
-                                        </header>
-                                        <form id="preview-form" class="form-stack">
-                                            <label class="form-field">
-                                                <span class="field-head">Video source</span>
-                                                <select id="preview-options" class="glass-input">
-                                                    <option value="">Select an uploaded or output video…</option>
-                                                </select>
-                                            </label>
-                                            <label class="form-field">
-                                                <span class="field-head">Or paste path</span>
-                                                <input type="text" id="preview-input" name="video_path" placeholder="outputs/sample.mp4" class="glass-input" />
-                                            </label>
-                                            <label class="form-field">
-                                                <span class="field-head">Confidence</span>
-                                                <input type="number" name="confidence" value="0.33" step="0.01" class="glass-input" />
-                                            </label>
-                                            <label class="form-field">
-                                                <span class="field-head">IOU Threshold</span>
-                                                <input type="number" name="iou" value="0.45" step="0.01" class="glass-input" />
-                                            </label>
-                                            <button type="submit" class="btn-secondary w-full">Run preview</button>
-                                        </form>
-                                        <div id="preview-panel" class="preview-shell hidden">
-                                            <video id="preview-player" controls preload="metadata"></video>
-                                            <div class="preview-actions">
-                                                <a id="preview-download" class="chip-button" target="_blank" rel="noopener">Download</a>
-                                                <button type="button" data-preview-modal class="chip-button">Open modal</button>
-                                            </div>
-                                        </div>
-                                    </article>
-                                </div>
-
-                                <article class="module-card">
-                                    <header>
-                                        <h3>Live Queue</h3>
-                                        <p>Active tasks stay lean with inline progress.</p>
-                                    </header>
-                                    <ul id="queue-list" class="queue-list"></ul>
-                                    <p id="queue-empty" class="empty-state text-xs text-slate-400/80">No active jobs right now.</p>
-                                </article>
-
-                                <article class="module-card">
-                                    <header>
-                                        <h3>Latest Outputs</h3>
-                                        <p>Recently generated previews and cleaned videos appear instantly.</p>
-                                    </header>
-                                    <ul id="outputs-grid" class="stacked-list"></ul>
-                                    <p id="outputs-empty" class="empty-state text-xs text-slate-400/80">Outputs will appear once generated.</p>
-                                </article>
-                            </div>
-
-                            <div class="tab-panel hidden" data-tab-panel="annotate">
-                                <section class="module-card space-y-6" id="annotation-studio">
-                                    <div class="flex flex-wrap items-center justify-between gap-3">
-                                        <div>
-                                            <h3>Annotation Studio</h3>
-                                            <p>Pull a frame, draw boxes around missed marks, and expand training data.</p>
-                                        </div>
-                                        <div class="annotation-summary">
-                                            Manual dataset <span id="annotation-dataset-count">0</span> frames • <span id="annotation-box-total">0</span> boxes
-                                        </div>
-                                    </div>
-
-                                    <div class="annotation-layout">
-                                        <div class="annotation-controls">
-                                            <label class="form-field">
-                                                <span class="field-head">Video source</span>
-                                                <select id="annotation-video" class="glass-input">
-                                                    <option value="">Select an uploaded or output video…</option>
-                                                </select>
-                                            </label>
-                                            <label class="form-field">
-                                                <div class="field-head flex items-center justify-between">
-                                                    <span>Timestamp</span>
-                                                    <span id="annotation-time-label">00:00</span>
-                                                </div>
-                                                <input type="range" id="annotation-slider" min="0" max="0" step="0.1" value="0" class="accent-primary" disabled />
-                                                <div id="annotation-duration" class="hint-text">Duration: 00:00</div>
-                                            </label>
-                                            <label class="form-field">
-                                                <span class="field-head">Label new boxes as</span>
-                                                <select id="annotation-label" class="glass-input">
-                                                    <option value="watermark">Watermark (general)</option>
-                                                    <option value="watermark_text">Watermark text</option>
-                                                    <option value="watermark_icon">Watermark icon</option>
-                                                </select>
-                                            </label>
-                                            <div class="flex flex-wrap gap-3">
-                                                <button type="button" class="btn-secondary" id="annotation-refresh" disabled>Grab frame</button>
-                                                <button type="button" class="btn-secondary" id="annotation-clear" disabled>Clear boxes</button>
-                                                <button type="button" class="btn-primary grow sm:grow-0" id="annotation-save" disabled>Save to dataset</button>
-                                            </div>
-                                            <div class="annotation-status" id="annotation-status">Select a video to begin annotating.</div>
-                                            <div class="annotation-status">
-                                                Dataset YAML: <code id="annotation-dataset-path">datasets/manual_annotations/data.yaml</code>
-                                            </div>
-                                            <div class="annotation-saved">
-                                                <div class="flex items-center justify-between">
-                                                    <h4>Saved frames</h4>
-                                                    <span class="annotation-chip" id="annotation-saved-total">0 boxes</span>
-                                                </div>
-                                                <p id="annotation-saved-empty" class="hint-text">No frames saved yet. Save annotated frames to build your dataset.</p>
-                                                <ul id="annotation-saved-list" class="annotation-saved-list"></ul>
-                                            </div>
-                                        </div>
-
-                                        <div class="annotation-stage-wrap">
-                                            <div class="annotation-stage">
-                                                <img id="annotation-image" alt="Annotation frame" class="annotation-image" />
-                                                <canvas id="annotation-canvas" class="annotation-canvas"></canvas>
-                                                <div id="annotation-empty" class="annotation-empty-message">Pick a video and timestamp to begin annotating.</div>
-                                            </div>
-                                            <div>
-                                                <h4>Boxes in current frame</h4>
-                                                <ul id="annotation-boxes" class="annotation-boxes"></ul>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </section>
-                            </div>
-
-                            <div class="tab-panel hidden" data-tab-panel="training">
-                                <div class="panel-grid">
-                                    <article class="module-card">
-                                        <header>
-                                            <h3>Auto-Annotation (Roboflow)</h3>
-                                            <p>Batch label missed frames with your Roboflow workflow.</p>
-                                        </header>
-                                        <form id="annotate-form" class="form-stack">
-                                            <label class="form-field">
-                                                <span class="field-head">Image folder</span>
-                                                <input type="text" name="image_dir" value="datasets/missed_frames" required class="glass-input" />
-                                            </label>
-                                            <div class="grid gap-4 sm:grid-cols-2">
-                                                <label class="form-field">
-                                                    <span class="field-head">Confidence ≥</span>
-                                                    <input type="number" step="0.01" name="confidence" value="0.3" class="glass-input" />
-                                                </label>
-                                                <label class="form-field">
-                                                    <span class="field-head">Workspace</span>
-                                                    <input type="text" name="workspace" value="fattyb" required class="glass-input" />
-                                                </label>
-                                                <label class="form-field">
-                                                    <span class="field-head">Workflow</span>
-                                                    <input type="text" name="workflow" value="find-objects" required class="glass-input" />
-                                                </label>
-                                                <label class="form-field sm:col-span-2">
-                                                    <span class="field-head">API Key</span>
-                                                    <input type="text" name="api_key" value="EVcvjbMfr79JoMG9yjjW" required class="glass-input" />
-                                                </label>
-                                            </div>
-                                            <button type="submit" class="btn-secondary w-full">Run auto label</button>
-                                        </form>
-                                    </article>
-
-                                    <article class="module-card">
-                                        <header>
-                                            <h3>Fine-Tune Detector</h3>
-                                            <p>Kick off YOLO finetuning with confident defaults.</p>
-                                        </header>
-                                        <form id="train-form" class="form-stack">
-                                            <label class="form-field">
-                                                <span class="field-head">Starting weights</span>
-                                                <select id="train-weights" name="weights_path" class="glass-input">
-                                                    <option value="">Use active detector</option>
-                                                </select>
-                                            </label>
-                                            <label class="form-field">
-                                                <span class="field-head">Dataset YAML</span>
-                                                <input type="text" name="data_yaml" value="datasets/manual_annotations/data.yaml" required class="glass-input" />
-                                            </label>
-                                            <div class="grid gap-4 sm:grid-cols-2">
-                                                <label class="form-field">
-                                                    <span class="field-head">Epochs</span>
-                                                    <input type="number" name="epochs" value="10" class="glass-input" />
-                                                </label>
-                                                <label class="form-field">
-                                                    <span class="field-head">LR start</span>
-                                                    <input type="number" step="1e-5" name="lr0" value="0.0005" class="glass-input" />
-                                                </label>
-                                                <label class="form-field">
-                                                    <span class="field-head">LR final</span>
-                                                    <input type="number" step="1e-5" name="lrf" value="0.0005" class="glass-input" />
-                                                </label>
-                                                <label class="form-field">
-                                                    <span class="field-head">Batch size</span>
-                                                    <input type="number" name="batch" value="16" class="glass-input" />
-                                                </label>
-                                            </div>
-                                            <button type="submit" class="btn-secondary w-full">Start finetuning</button>
-                                            <p class="hint-text">Jobs execute with the active detector weights—watch progress below.</p>
-                                        </form>
-                                    </article>
-                                </div>
-
-                                <article class="module-card">
-                                    <header>
-                                        <h3>Background Jobs</h3>
-                                        <p>Monitor annotation, training, and preview jobs as they progress.</p>
-                                    </header>
-                                    <div class="table-shell">
-                                        <table class="jobs-table text-xs">
-                                            <thead>
-                                                <tr>
-                                                    <th>ID</th>
-                                                    <th>Type</th>
-                                                    <th>Status</th>
-                                                    <th>Progress</th>
-                                                    <th>Message</th>
-                                                    <th>Output</th>
-                                                </tr>
-                                            </thead>
-                                            <tbody id="jobs-table"></tbody>
-                                        </table>
-                                    </div>
-                                </article>
+                            <div class="flex flex-wrap gap-3">
+                                <button type="button" id="video-refresh" class="btn-secondary">Refresh list</button>
+                                <button type="button" id="video-delete" class="btn-ghost danger-action" disabled>Delete selected</button>
                             </div>
                         </div>
-                    </section>
-                </div>
-            </main>
+                        <form id="clean-form" class="grid gap-5" enctype="multipart/form-data">
+                            <div class="grid gap-3 sm:grid-cols-2">
+                                <label class="form-field">
+                                    <span class="field-label">Detector weights</span>
+                                    <div class="relative">
+                                        <select id="clean-model" class="input-control">
+                                            <option value="">Loading models…</option>
+                                        </select>
+                                        <span id="clean-model-selected-badge" class="badge badge-new hidden">New</span>
+                                    </div>
+                                    <span id="clean-model-hint" class="field-hint">Selecting a weight activates it for upcoming removal jobs.</span>
+                                </label>
+                                <label class="form-field">
+                                    <span class="field-label">Video file</span>
+                                    <input type="file" name="video" accept="video/*" required class="input-control file-input" />
+                                </label>
+                            </div>
+                            <div class="flex flex-wrap items-center gap-4">
+                                <button type="submit" class="btn-primary">Queue removal</button>
+                                <p class="field-hint">Jobs run asynchronously—continue with previews or annotations while it processes.</p>
+                            </div>
+                        </form>
 
-            <footer class="mx-auto max-w-7xl px-6 pb-12 text-xs text-slate-400">
-                <p>&copy; {{ year }} SoraWMR. Stay in the command deck to preview, download, or iterate instantly.</p>
-            </footer>
+                        <details class="collapsible compact" open>
+                            <summary>
+                                <div>
+                                    <h3>Finished videos</h3>
+                                    <p>Latest cleaned clips with quick preview and download actions.</p>
+                                </div>
+                                <span class="collapsible-icon"></span>
+                            </summary>
+                            <div class="collapsible-body">
+                                <ul id="finished-list" class="media-list max-h-56 overflow-y-auto pr-1"></ul>
+                                <p id="finished-empty" class="empty-note">Render a clip to see it appear here.</p>
+                            </div>
+                        </details>
+                    </div>
+                </section>
+
+                <section class="glass-card space-y-6">
+                    <div class="card-header">
+                        <div>
+                            <p class="card-kicker">Step 2</p>
+                            <h2 class="card-title">Detection preview</h2>
+                            <p class="card-subtitle">Overlay detections on demand to validate coverage before locking in a dataset.</p>
+                        </div>
+                    </div>
+                    <div class="card-body space-y-5">
+                        <form id="preview-form" class="grid gap-5 lg:grid-cols-[minmax(0,320px)_minmax(0,1fr)]">
+                            <div class="space-y-3">
+                                <label class="form-field">
+                                    <span class="field-label">Video source</span>
+                                    <select id="preview-options" class="input-control">
+                                        <option value="">Select an uploaded or output video…</option>
+                                    </select>
+                                </label>
+                                <label class="form-field">
+                                    <span class="field-label">Or paste path</span>
+                                    <input type="text" id="preview-input" name="video_path" placeholder="outputs/sample.mp4" class="input-control" />
+                                </label>
+                                <div class="grid gap-3 sm:grid-cols-2">
+                                    <label class="form-field">
+                                        <span class="field-label">Confidence</span>
+                                        <input type="number" name="confidence" value="0.33" step="0.01" class="input-control" />
+                                    </label>
+                                    <label class="form-field">
+                                        <span class="field-label">IOU threshold</span>
+                                        <input type="number" name="iou" value="0.45" step="0.01" class="input-control" />
+                                    </label>
+                                </div>
+                                <button type="submit" class="btn-secondary w-full">Run preview</button>
+                            </div>
+                            <div class="preview-shell min-h-[250px]">
+                                <div id="preview-panel" class="preview-panel hidden">
+                                    <div class="preview-header">
+                                        <div>
+                                            <h3>Live overlay</h3>
+                                            <p>Review the detector output before exporting or annotating.</p>
+                                        </div>
+                                        <div class="preview-actions">
+                                            <a id="preview-download" class="btn-ghost" target="_blank" rel="noopener">Download</a>
+                                            <button type="button" class="btn-ghost" data-preview-modal>Open modal</button>
+                                        </div>
+                                    </div>
+                                    <video id="preview-player" controls preload="metadata"></video>
+                                </div>
+                                <p class="preview-placeholder">Run a preview to see overlays rendered inline.</p>
+                            </div>
+                        </form>
+                    </div>
+                </section>
+            </div>
+
+            <div class="space-y-5 xl:col-span-4">
+                <section class="glass-card space-y-5">
+                    <div class="card-header">
+                        <div>
+                            <p class="card-kicker">Overview</p>
+                            <h2 class="card-title">Operational snapshot</h2>
+                            <p class="card-subtitle">Monitor active jobs, download outputs, and confirm the active model in one place.</p>
+                        </div>
+                    </div>
+                    <div class="card-body space-y-5">
+                        <div id="model-indicator" class="model-chip">Active weights: <code>resources/best.pt</code></div>
+                        <details class="collapsible compact" open>
+                            <summary>
+                                <div>
+                                    <h3>Live queue</h3>
+                                    <p>Real-time progress for running removal jobs.</p>
+                                </div>
+                                <span class="collapsible-icon"></span>
+                            </summary>
+                            <div class="collapsible-body">
+                                <ul id="queue-list" class="media-list max-h-52 overflow-y-auto pr-1"></ul>
+                                <p id="queue-empty" class="empty-note">No active removals. Queue a video to kick things off.</p>
+                            </div>
+                        </details>
+                        <details class="collapsible compact">
+                            <summary>
+                                <div>
+                                    <h3>Processed library</h3>
+                                    <p>Recent previews and cleaned clips with instant access.</p>
+                                </div>
+                                <span class="collapsible-icon"></span>
+                            </summary>
+                            <div class="collapsible-body">
+                                <ul id="outputs-grid" class="media-list max-h-52 overflow-y-auto pr-1"></ul>
+                                <p id="outputs-empty" class="empty-note">Outputs will appear here once generated.</p>
+                            </div>
+                        </details>
+                    </div>
+                </section>
+            </div>
         </div>
+
+        <section class="glass-card space-y-5">
+            <div class="card-header flex-wrap gap-4">
+                <div>
+                    <p class="card-kicker">Dataset crafting</p>
+                    <h2 class="card-title">Annotation studio</h2>
+                    <p class="card-subtitle">Grab frames, draw boxes, and grow a finetuning dataset without leaving the browser.</p>
+                </div>
+                <div class="annotation-summary-pill">
+                    Manual dataset <span id="annotation-dataset-count">0</span> frames · <span id="annotation-box-total">0</span> boxes
+                </div>
+            </div>
+            <div class="annotation-body condensed">
+                <div class="annotation-controls">
+                    <div class="form-field">
+                        <span class="field-label">Active video</span>
+                        <div id="annotation-video-label" class="active-video-pill">No video selected yet.</div>
+                        <span class="field-hint">Manage the selection above in the upload section.</span>
+                    </div>
+                    <label class="form-field">
+                        <div class="flex items-center justify-between text-xs text-slate-400">
+                            <span>Timestamp</span>
+                            <span id="annotation-time-label">00:00</span>
+                        </div>
+                        <input type="range" id="annotation-slider" min="0" max="0" step="0.1" value="0" class="range-control" disabled />
+                        <span id="annotation-duration" class="field-hint">Duration: 00:00</span>
+                    </label>
+                    <label class="form-field">
+                        <span class="field-label">Label new boxes as</span>
+                        <select id="annotation-label" class="input-control">
+                            <option value="watermark">Watermark (general)</option>
+                            <option value="watermark_text">Watermark text</option>
+                            <option value="watermark_icon">Watermark icon</option>
+                        </select>
+                    </label>
+                    <div class="flex flex-wrap gap-3">
+                        <button type="button" class="btn-secondary" id="annotation-refresh" disabled>Grab frame</button>
+                        <button type="button" class="btn-secondary" id="annotation-clear" disabled>Clear boxes</button>
+                        <button type="button" class="btn-primary grow sm:grow-0" id="annotation-save" disabled>Save to dataset</button>
+                    </div>
+                    <div id="annotation-status" class="annotation-status">Select a video to begin annotating.</div>
+                    <div class="annotation-meta">
+                        Dataset YAML: <code id="annotation-dataset-path">datasets/manual_annotations/data.yaml</code>
+                    </div>
+                    <details class="collapsible compact">
+                        <summary>
+                            <div>
+                                <h3>Saved frames</h3>
+                                <p>Quick reference for already annotated samples.</p>
+                            </div>
+                            <span class="collapsible-icon"></span>
+                        </summary>
+                        <div class="collapsible-body">
+                            <p id="annotation-saved-empty" class="field-hint">No frames saved yet. Save annotated frames to build your dataset.</p>
+                            <ul id="annotation-saved-list" class="annotation-saved-list max-h-52 overflow-y-auto pr-1"></ul>
+                            <div class="saved-count" id="annotation-saved-total">0 boxes</div>
+                        </div>
+                    </details>
+                </div>
+
+                <div class="annotation-stage-wrap">
+                    <div class="annotation-stage">
+                        <img id="annotation-image" alt="Annotation frame" class="annotation-image" />
+                        <canvas id="annotation-canvas" class="annotation-canvas"></canvas>
+                        <div id="annotation-empty" class="annotation-empty-message">Pick a video and timestamp to begin annotating.</div>
+                    </div>
+                    <div>
+                        <h4 class="field-label">Boxes in current frame</h4>
+                        <ul id="annotation-boxes" class="annotation-boxes"></ul>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="grid gap-5 xl:grid-cols-12">
+            <div class="glass-card space-y-6 xl:col-span-7">
+            <div class="card-header">
+                <div>
+                    <p class="card-kicker">Finetuning</p>
+                    <h2 class="card-title">Automate labeling &amp; train models</h2>
+                    <p class="card-subtitle">Run Roboflow auto-labeling, launch YOLO finetuning, and manage weight versions without leaving the dashboard.</p>
+                </div>
+            </div>
+                <div class="card-body space-y-5">
+                <div class="action-form space-y-4" id="training-library-panel">
+                    <div class="section-heading">
+                        <h3>Training video set</h3>
+                        <p>Upload reference clips you want available when assembling datasets.</p>
+                    </div>
+                    <div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+                        <label class="form-field">
+                            <span class="field-label">Upload training video</span>
+                            <input type="file" id="training-video-upload" accept="video/*" class="input-control file-input" />
+                            <span class="field-hint">Videos are stored in <code>datasets/training_sources</code>.</span>
+                        </label>
+                        <label class="form-field">
+                            <span class="field-label">Stored videos</span>
+                            <select id="training-video-list" class="input-control" multiple size="5" aria-label="Training videos"></select>
+                            <span class="field-hint">Select entries to remove completed or outdated clips.</span>
+                        </label>
+                    </div>
+                    <div class="flex flex-wrap gap-3">
+                        <button type="button" id="training-video-refresh" class="btn-secondary">Refresh</button>
+                        <button type="button" id="training-video-delete" class="btn-ghost danger-action" disabled>Delete selected</button>
+                    </div>
+                </div>
+                <div class="grid gap-4 lg:grid-cols-2">
+                    <form id="annotate-form" class="action-form space-y-3">
+                        <div class="section-heading">
+                            <h3>Auto-annotation (Roboflow)</h3>
+                            <p>Push missed frames through your Roboflow workflow for rapid labeling.</p>
+                        </div>
+                        <label class="form-field">
+                            <span class="field-label">Image folder</span>
+                            <input type="text" name="image_dir" value="datasets/missed_frames" required class="input-control" />
+                        </label>
+                        <div class="grid gap-3 sm:grid-cols-2">
+                            <label class="form-field">
+                                <span class="field-label">Confidence ≥</span>
+                                <input type="number" step="0.01" name="confidence" value="0.3" class="input-control" />
+                            </label>
+                            <label class="form-field">
+                                <span class="field-label">Workspace</span>
+                                <input type="text" name="workspace" value="fattyb" required class="input-control" />
+                            </label>
+                            <label class="form-field">
+                                <span class="field-label">Workflow</span>
+                                <input type="text" name="workflow" value="find-objects" required class="input-control" />
+                            </label>
+                            <label class="form-field sm:col-span-2">
+                                <span class="field-label">API key</span>
+                                <input type="text" name="api_key" value="EVcvjbMfr79JoMG9yjjW" required class="input-control" />
+                            </label>
+                        </div>
+                        <div>
+                            <button type="submit" class="btn-secondary w-full">Run auto label</button>
+                        </div>
+                    </form>
+
+                    <form id="train-form" class="action-form space-y-3">
+                        <div class="section-heading">
+                            <h3>Fine-tune detector</h3>
+                            <p>Trigger YOLO finetuning with the active dataset configuration.</p>
+                        </div>
+                        <label class="form-field">
+                            <span class="field-label">Starting weights</span>
+                            <select id="train-weights" name="weights_path" class="input-control">
+                                <option value="">Use active detector</option>
+                            </select>
+                        </label>
+                        <label class="form-field">
+                            <span class="field-label">Dataset YAML</span>
+                            <input type="text" name="data_yaml" value="datasets/manual_annotations/data.yaml" required class="input-control" />
+                        </label>
+                        <div class="grid gap-3 sm:grid-cols-2">
+                            <label class="form-field">
+                                <span class="field-label">Epochs</span>
+                                <input type="number" name="epochs" value="10" class="input-control" />
+                            </label>
+                            <label class="form-field">
+                                <span class="field-label">LR start</span>
+                                <input type="number" step="1e-5" name="lr0" value="0.0005" class="input-control" />
+                            </label>
+                            <label class="form-field">
+                                <span class="field-label">LR final</span>
+                                <input type="number" step="1e-5" name="lrf" value="0.0005" class="input-control" />
+                            </label>
+                            <label class="form-field">
+                                <span class="field-label">Batch size</span>
+                                <input type="number" name="batch" value="16" class="input-control" />
+                            </label>
+                        </div>
+                        <div class="space-y-2">
+                            <button type="submit" class="btn-primary w-full">Start finetuning</button>
+                            <p class="field-hint">Jobs execute with the active detector weights; progress reports below.</p>
+                        </div>
+                    </form>
+                </div>
+
+                <details class="collapsible compact" open>
+                    <summary>
+                        <div>
+                            <h3>Background jobs</h3>
+                            <p>Monitor annotation, training, and preview jobs as they progress.</p>
+                        </div>
+                        <span class="collapsible-icon"></span>
+                    </summary>
+                    <div class="collapsible-body">
+                        <div class="table-shell max-h-56 overflow-y-auto">
+                            <table class="jobs-table">
+                                <thead>
+                                    <tr>
+                                        <th>ID</th>
+                                        <th>Type</th>
+                                        <th>Status</th>
+                                        <th>Progress</th>
+                                        <th>Message</th>
+                                        <th>Output</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="jobs-table"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </details>
+
+                <details class="collapsible compact">
+                    <summary>
+                        <div>
+                            <h3>Model catalog</h3>
+                            <p>Set active weights or retire older checkpoints.</p>
+                        </div>
+                        <span class="collapsible-icon"></span>
+                    </summary>
+                    <div class="collapsible-body">
+                        <div class="table-shell max-h-56 overflow-y-auto">
+                            <table class="models-table">
+                                <thead>
+                                    <tr>
+                                        <th>Model</th>
+                                        <th>Location</th>
+                                        <th>Updated</th>
+                                        <th>Size</th>
+                                        <th>Status</th>
+                                        <th></th>
+                                    </tr>
+                                </thead>
+                                <tbody id="models-table"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </details>
+            </div>
+            </div>
+
+            <div class="glass-card space-y-8 xl:col-span-5">
+                <div class="card-header">
+                    <div>
+                        <p class="card-kicker">Finetuning</p>
+                        <h2 class="card-title">Automate labeling &amp; train models</h2>
+                        <p class="card-subtitle">Run Roboflow auto-labeling, launch YOLO finetuning, and manage weight versions without leaving the dashboard.</p>
+                    </div>
+                </div>
+                <div class="card-body space-y-8">
+                    <form id="annotate-form" class="action-form grid gap-4 sm:grid-cols-2">
+                        <div class="section-heading sm:col-span-2">
+                            <h3>Auto-annotation (Roboflow)</h3>
+                            <p>Push missed frames through your Roboflow workflow for rapid labeling.</p>
+                        </div>
+                        <label class="form-field sm:col-span-2">
+                            <span class="field-label">Image folder</span>
+                            <input type="text" name="image_dir" value="datasets/missed_frames" required class="input-control" />
+                        </label>
+                        <label class="form-field">
+                            <span class="field-label">Confidence ≥</span>
+                            <input type="number" step="0.01" name="confidence" value="0.3" class="input-control" />
+                        </label>
+                        <label class="form-field">
+                            <span class="field-label">Workspace</span>
+                            <input type="text" name="workspace" value="fattyb" required class="input-control" />
+                        </label>
+                        <label class="form-field">
+                            <span class="field-label">Workflow</span>
+                            <input type="text" name="workflow" value="find-objects" required class="input-control" />
+                        </label>
+                        <label class="form-field sm:col-span-2">
+                            <span class="field-label">API key</span>
+                            <input type="text" name="api_key" value="EVcvjbMfr79JoMG9yjjW" required class="input-control" />
+                        </label>
+                        <div class="sm:col-span-2">
+                            <button type="submit" class="btn-secondary w-full">Run auto label</button>
+                        </div>
+                    </form>
+
+                    <form id="train-form" class="action-form grid gap-4 sm:grid-cols-2">
+                        <div class="section-heading sm:col-span-2">
+                            <h3>Fine-tune detector</h3>
+                            <p>Trigger YOLO finetuning with the active dataset configuration.</p>
+                        </div>
+                        <label class="form-field sm:col-span-2">
+                            <span class="field-label">Starting weights</span>
+                            <select id="train-weights" name="weights_path" class="input-control">
+                                <option value="">Use active detector</option>
+                            </select>
+                        </label>
+                        <label class="form-field sm:col-span-2">
+                            <span class="field-label">Dataset YAML</span>
+                            <input type="text" name="data_yaml" value="datasets/manual_annotations/data.yaml" required class="input-control" />
+                        </label>
+                        <label class="form-field">
+                            <span class="field-label">Epochs</span>
+                            <input type="number" name="epochs" value="10" class="input-control" />
+                        </label>
+                        <label class="form-field">
+                            <span class="field-label">LR start</span>
+                            <input type="number" step="1e-5" name="lr0" value="0.0005" class="input-control" />
+                        </label>
+                        <label class="form-field">
+                            <span class="field-label">LR final</span>
+                            <input type="number" step="1e-5" name="lrf" value="0.0005" class="input-control" />
+                        </label>
+                        <label class="form-field">
+                            <span class="field-label">Batch size</span>
+                            <input type="number" name="batch" value="16" class="input-control" />
+                        </label>
+                        <div class="sm:col-span-2 space-y-3">
+                            <button type="submit" class="btn-primary w-full">Start finetuning</button>
+                            <p class="field-hint">Jobs execute with the active detector weights; progress reports below.</p>
+                        </div>
+                    </form>
+
+                    <details class="collapsible compact" open>
+                        <summary>
+                            <div>
+                                <h3>Background jobs</h3>
+                                <p>Monitor annotation, training, and preview jobs as they progress.</p>
+                            </div>
+                            <span class="collapsible-icon"></span>
+                        </summary>
+                        <div class="collapsible-body">
+                            <div class="table-shell max-h-56 overflow-y-auto">
+                                <table class="jobs-table">
+                                    <thead>
+                                        <tr>
+                                            <th>ID</th>
+                                            <th>Type</th>
+                                            <th>Status</th>
+                                            <th>Progress</th>
+                                            <th>Message</th>
+                                            <th>Output</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="jobs-table"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </details>
+
+                    <details class="collapsible compact">
+                        <summary>
+                            <div>
+                                <h3>Model catalog</h3>
+                                <p>Set active weights or retire older checkpoints.</p>
+                            </div>
+                            <span class="collapsible-icon"></span>
+                        </summary>
+                        <div class="collapsible-body">
+                            <div class="flex flex-wrap items-center justify-between gap-3 pb-3">
+                                <span class="field-hint">Bulk manage detector checkpoints.</span>
+                                <button type="button" id="model-delete-selected" class="btn-ghost danger-action" disabled>Delete selected</button>
+                            </div>
+                            <div class="table-shell max-h-56 overflow-y-auto">
+                                <table class="models-table">
+                                    <thead>
+                                        <tr>
+                                            <th></th>
+                                            <th>Model</th>
+                                            <th>Location</th>
+                                            <th>Updated</th>
+                                            <th>Size</th>
+                                            <th>Status</th>
+                                            <th></th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="models-table"></tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </details>
+                </div>
+            </div>
+        </section>
+
+        <footer class="text-xs text-slate-500">
+            <p>&copy; {{ year }} SoraWMR · Professional watermark removal tooling for fast-moving teams.</p>
+        </footer>
     </div>
 
     <div id="toasts" class="fixed bottom-6 right-6 z-50 flex flex-col gap-3"></div>
 
+    <div id="model-rename-modal" class="fixed inset-0 z-40 hidden items-center justify-center bg-slate-950/70 backdrop-blur">
+        <div class="glass-card max-w-md space-y-6">
+            <div class="flex items-start justify-between gap-4">
+                <div>
+                    <h3 class="text-lg font-semibold text-white">Name your new weights</h3>
+                    <p class="text-sm text-slate-300">We saved a copy of the fine-tuned model—give it a clear label.</p>
+                </div>
+                <button type="button" id="model-rename-cancel" class="btn-ghost h-9 w-9 rounded-full text-lg" aria-label="Close naming modal">&times;</button>
+            </div>
+            <form id="model-rename-form" class="space-y-4">
+                <label class="form-field">
+                    <span class="field-label">Model name</span>
+                    <input type="text" id="model-rename-input" class="input-control" required />
+                </label>
+                <div class="flex justify-end gap-3">
+                    <button type="button" id="model-rename-dismiss" class="btn-ghost">Skip</button>
+                    <button type="submit" id="model-rename-confirm" class="btn-primary">Save name</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
     <div id="preview-modal" class="fixed inset-0 z-40 hidden items-center justify-center bg-slate-950/70 backdrop-blur">
-        <div class="glass-panel relative w-[min(90vw,900px)] p-6">
-            <button id="modal-close" class="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/10 text-lg text-white transition hover:bg-white/20" aria-label="Close preview">&times;</button>
-            <h3 class="text-lg font-semibold text-white">Stream preview</h3>
-            <video id="modal-video" controls preload="metadata" class="mt-4 aspect-video w-full rounded-2xl border border-white/10 bg-black shadow-xl"></video>
+        <div class="glass-card max-w-3xl space-y-6">
+            <div class="flex items-start justify-between gap-6">
+                <div>
+                    <h3 class="text-lg font-semibold text-white">Stream preview</h3>
+                    <p class="text-sm text-slate-300">Pop out the detection overlay for a closer inspection.</p>
+                </div>
+                <button id="modal-close" class="btn-ghost h-9 w-9 rounded-full text-lg" aria-label="Close preview">&times;</button>
+            </div>
+            <video id="modal-video" controls preload="metadata" class="aspect-video w-full rounded-2xl border border-white/10 bg-black shadow-lg"></video>
         </div>
     </div>
 
     <script>
         document.addEventListener("DOMContentLoaded", () => {
-            const tabButtons = Array.from(document.querySelectorAll(".tab-button"));
-            const tabPanels = Array.from(document.querySelectorAll(".tab-panel"));
-            function activateTab(target) {
-                tabButtons.forEach((btn) => {
-                    const isActive = btn.dataset.tab === target;
-                    btn.setAttribute("aria-selected", String(isActive));
-                });
-                tabPanels.forEach((panel) => {
-                    const isActive = panel.dataset.tabPanel === target;
-                    panel.classList.toggle("hidden", !isActive);
-                });
-            }
-            tabButtons.forEach((btn) => {
-                btn.addEventListener("click", () => {
-                    activateTab(btn.dataset.tab);
-                });
-            });
-
-            const modelsToggle = document.getElementById("models-panel-toggle");
-            const modelsPanel = document.getElementById("models-panel");
-            if (modelsToggle && modelsPanel) {
-                modelsToggle.addEventListener("click", () => {
-                    const nowOpen = modelsPanel.classList.toggle("hidden");
-                    modelsToggle.setAttribute("aria-expanded", String(!nowOpen));
-                });
-            }
-
-            document.querySelectorAll("[data-preview-modal]").forEach((btn) => {
-                btn.addEventListener("click", () => {
-                    const preview = document.getElementById("preview-player");
+            document.querySelectorAll("[data-preview-modal]").forEach((button) => {
+                button.addEventListener("click", () => {
+                    const previewVideo = document.getElementById("preview-player");
                     const modalVideo = document.getElementById("modal-video");
                     const modal = document.getElementById("preview-modal");
-                    if (!preview || !modalVideo || !modal) return;
-                    modalVideo.src = preview.currentSrc || preview.src;
+                    if (!previewVideo || !modalVideo || !modal) return;
+                    modalVideo.src = previewVideo.currentSrc || previewVideo.src;
                     modal.classList.remove("hidden");
                     modalVideo.play().catch(() => {});
                 });

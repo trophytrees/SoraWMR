@@ -7,7 +7,7 @@ from uuid import uuid4
 from loguru import logger
 from sqlalchemy import select
 
-from sorawm.configs import THUMBNAILS_DIR, WORKING_DIR
+from sorawm.configs import THUMBNAILS_DIR, VIDEO_UPLOADS_DIR, WORKING_DIR
 from sorawm.core import SoraWM
 from sorawm.server.db import get_session
 from sorawm.server.models import Task
@@ -20,8 +20,7 @@ class WMRemoveTaskWorker:
         self.queue = Queue()
         self.sora_wm = None
         self.output_dir = WORKING_DIR
-        self.upload_dir = WORKING_DIR / "uploads"
-        self.upload_dir.mkdir(exist_ok=True, parents=True)
+        self.upload_dir = VIDEO_UPLOADS_DIR
         self.thumbnail_dir = THUMBNAILS_DIR
         self.thumbnail_dir.mkdir(exist_ok=True, parents=True)
         self._reload_lock = asyncio.Lock()

@@ -1,11 +1,13 @@
 from __future__ import annotations
 from datetime import datetime
 
+import re
+import shutil
 from pathlib import Path
 from typing import Optional
-import shutil
 
-from fastapi import APIRouter, Body, HTTPException, Query, Request
+import aiofiles
+from fastapi import APIRouter, Body, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import HTMLResponse
 from fastapi.templating import Jinja2Templates
 from loguru import logger
@@ -25,9 +27,11 @@ from sorawm.configs import (
     BACKUPS_DIR,
     BASE_MODEL_PATH,
     OUTPUT_DIR,
+    TRAINING_VIDEO_DIR,
     RESOURCES_DIR,
     ROOT,
     THUMBNAILS_DIR,
+    VIDEO_UPLOADS_DIR,
 )
 from sorawm.preview import generate_detection_preview
 from sorawm.training import fine_tune_detector, TrainingError
@@ -37,7 +41,12 @@ from sorawm.utils.video_utils import (
     get_video_metadata,
 )
 from sorawm.webui.job_manager import job_manager
-from sorawm.webui.state import get_active_source, set_active_source
+from sorawm.webui.state import (
+    get_active_source,
+    get_active_video,
+    set_active_source,
+    set_active_video,
+)
 from sorawm.server.db import get_session
 from sorawm.server.models import Task
 from sorawm.server.worker import worker
@@ -53,6 +62,119 @@ def _resolve_path_within_root(candidate: Path) -> Path:
     except ValueError:
         raise HTTPException(status_code=400, detail="Path must stay within project workspace.")
     return resolved
+
+
+VIDEO_EXTENSIONS = {
+    ".mp4",
+    ".mov",
+    ".mkv",
+    ".avi",
+    ".webm",
+    ".mpg",
+    ".mpeg",
+    ".m4v",
+}
+
+VIDEO_SOURCE_DIRECTORIES: list[tuple[Path, str, str | None]] = [
+    (VIDEO_UPLOADS_DIR, "upload", "/uploads"),
+    (TRAINING_VIDEO_DIR, "training", None),
+    (ROOT / "outputs", "output", "/outputs"),
+    (ROOT / "preview_outputs", "preview", "/preview_outputs"),
+    (OUTPUT_DIR, "output", "/output"),
+]
+
+ALLOWED_VIDEO_ROOTS = [directory.resolve() for directory, _, _ in VIDEO_SOURCE_DIRECTORIES]
+
+
+def _safe_filename(filename: str, default_stem: str = "clip") -> str:
+    candidate = Path(filename or "")
+    stem = re.sub(r"[^A-Za-z0-9._-]", "_", candidate.stem) or default_stem
+    suffix = candidate.suffix.lower()
+    if suffix not in VIDEO_EXTENSIONS:
+        raise HTTPException(status_code=400, detail=f"Unsupported video format: {suffix or 'unknown'}")
+    return f"{stem}{suffix}"
+
+
+def _safe_model_name(name: str) -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9._-]", "_", (name or "").strip())
+    if not cleaned:
+        raise HTTPException(status_code=400, detail="Model name cannot be empty")
+    if not cleaned.lower().endswith(".pt"):
+        cleaned = f"{cleaned}.pt"
+    return cleaned
+
+
+def _is_within(path: Path, parent: Path) -> bool:
+    try:
+        path.resolve().relative_to(parent.resolve())
+        return True
+    except ValueError:
+        return False
+
+
+def _allowed_video_path(path: Path) -> bool:
+    resolved = path.resolve()
+    return any(_is_within(resolved, root) for root in ALLOWED_VIDEO_ROOTS)
+
+
+def _disambiguate_path(directory: Path, desired_name: str) -> Path:
+    base = Path(desired_name)
+    candidate = directory / base.name
+    counter = 1
+    while candidate.exists():
+        candidate = directory / f"{base.stem}_{counter}{base.suffix}"
+        counter += 1
+    return candidate
+
+
+def _make_video_entry(
+    path: Path,
+    category: str,
+    mount_prefix: str | None,
+    base_dir: Path,
+    active_resolved: Path | None,
+) -> dict | None:
+    try:
+        stat = path.stat()
+    except FileNotFoundError:
+        return None
+    if path.suffix.lower() not in VIDEO_EXTENSIONS:
+        return None
+    rel = path.relative_to(ROOT).as_posix()
+    url = None
+    if mount_prefix:
+        try:
+            rel_to_mount = path.relative_to(base_dir).as_posix()
+            url = f"{mount_prefix}/{rel_to_mount}"
+        except ValueError:
+            url = None
+    return {
+        "path": rel,
+        "name": path.name,
+        "modified": stat.st_mtime,
+        "size": stat.st_size,
+        "category": category,
+        "active": bool(active_resolved and path.resolve() == active_resolved),
+        "url": url,
+    }
+
+
+def _collect_video_entries() -> dict[str, dict]:
+    active_raw = get_active_video(relative=False)
+    active_resolved = Path(active_raw).resolve() if active_raw else None
+    entries: dict[str, dict] = {}
+    for directory, category, mount_prefix in VIDEO_SOURCE_DIRECTORIES:
+        if not directory.exists():
+            continue
+        for path in directory.iterdir():
+            if not path.is_file():
+                continue
+            if path.suffix.lower() not in VIDEO_EXTENSIONS:
+                continue
+            entry = _make_video_entry(path, category, mount_prefix, directory, active_resolved)
+            if entry:
+                entries[entry["path"]] = entry
+    return entries
 
 
 class AnnotationBoxPayload(BaseModel):
@@ -165,6 +287,7 @@ def trigger_training(
     if resolved_weights.suffix != ".pt":
         raise HTTPException(status_code=400, detail="Only .pt weight files are supported")
     start_weights_rel = str(resolved_weights.relative_to(ROOT)).replace('\\', '/')
+    started_from_base = resolved_weights.resolve() == BASE_MODEL_PATH.resolve()
 
     def task(progress_callback):
         try:
@@ -190,6 +313,8 @@ def trigger_training(
                 "best_weights": str(best_path.relative_to(ROOT)).replace('\\', '/'),
                 "backup_path": str(backup_path.relative_to(ROOT)).replace('\\', '/'),
                 "start_weights": start_weights_rel,
+                "started_from_base": started_from_base,
+                "base_model_path": str(BASE_MODEL_PATH.relative_to(ROOT)).replace('\\', '/'),
             }
         except TrainingError as exc:
             raise RuntimeError(str(exc)) from exc
@@ -226,6 +351,109 @@ def trigger_preview(
     job_id = job_manager.submit(job_type="PREVIEW", func=task)
     job_manager._update_job(job_id, message=f"Generating preview for {video_path.name}")
     return {"job_id": job_id}
+
+
+@router.get("/api/video-sources")
+def list_video_sources():
+    entries = _collect_video_entries()
+    ordered = sorted(entries.values(), key=lambda item: item["modified"], reverse=True)
+    return {"videos": ordered, "active": get_active_video()}
+
+
+@router.post("/api/video-sources/active")
+def activate_video_source(video_path: Path | None = Body(None, embed=True)):
+    if video_path is None or str(video_path).strip() == "":
+        set_active_video(None)
+        return {"active": None}
+    candidate = _resolve_path_within_root(video_path)
+    if not candidate.exists():
+        raise HTTPException(status_code=404, detail="Video not found")
+    if not candidate.is_file() or candidate.suffix.lower() not in VIDEO_EXTENSIONS:
+        raise HTTPException(status_code=400, detail="Only video files can be activated")
+    if not _allowed_video_path(candidate):
+        raise HTTPException(status_code=400, detail="Video outside managed directories")
+    set_active_video(candidate)
+    return {"active": get_active_video()}
+
+
+@router.delete("/api/video-sources")
+async def delete_video_sources(
+    video_path: Path | None = Body(None, embed=True),
+    video_paths: list[Path] | None = Body(None, embed=True),
+):
+    candidates: list[Path] = []
+    if video_paths:
+        candidates.extend(video_paths)
+    if video_path:
+        candidates.append(video_path)
+    if not candidates:
+        raise HTTPException(status_code=400, detail="Provide at least one video path to delete")
+
+    deleted: list[str] = []
+    errors: list[dict[str, str]] = []
+    active_absolute = get_active_video(relative=False)
+    active_resolved = Path(active_absolute).resolve() if active_absolute else None
+
+    seen: set[Path] = set()
+    for candidate in candidates:
+        try:
+            target = _resolve_path_within_root(candidate)
+        except HTTPException as exc:
+            errors.append({"path": str(candidate), "error": exc.detail})
+            continue
+
+        target_resolved = target.resolve()
+        if target_resolved in seen:
+            continue
+        seen.add(target_resolved)
+
+        if not target_resolved.exists():
+            errors.append({"path": str(candidate), "error": "Video not found"})
+            continue
+        if not target_resolved.is_file():
+            errors.append({"path": str(candidate), "error": "Target is not a file"})
+            continue
+        if not _allowed_video_path(target_resolved):
+            errors.append({"path": str(candidate), "error": "Video outside managed directories"})
+            continue
+
+        try:
+            target_resolved.unlink()
+            deleted.append(str(target_resolved.relative_to(ROOT)).replace("\\", "/"))
+        except Exception as exc:  # pragma: no cover - filesystem errors
+            errors.append({"path": str(candidate), "error": str(exc)})
+
+    if active_resolved and (not active_resolved.exists() or active_resolved in seen):
+        set_active_video(None)
+
+    if not deleted and errors:
+        raise HTTPException(status_code=400, detail=errors)
+
+    return {"deleted": deleted, "errors": errors}
+
+
+@router.post("/api/training-videos")
+async def upload_training_video(video: UploadFile = File(...)):
+    if not video.filename:
+        raise HTTPException(status_code=400, detail="Filename required")
+    filename = _safe_filename(video.filename, default_stem="training")
+    target = _disambiguate_path(TRAINING_VIDEO_DIR, filename)
+    try:
+        async with aiofiles.open(target, "wb") as outfile:
+            while True:
+                chunk = await video.read(1024 * 1024)
+                if not chunk:
+                    break
+                await outfile.write(chunk)
+    finally:
+        await video.close()
+
+    active_raw = get_active_video(relative=False)
+    active_resolved = Path(active_raw).resolve() if active_raw else None
+    entry = _make_video_entry(target, "training", None, TRAINING_VIDEO_DIR, active_resolved)
+    if entry is None:
+        raise HTTPException(status_code=400, detail="Uploaded file is not a supported video format")
+    return entry
 
 
 @router.get("/api/video-meta")
@@ -380,7 +608,8 @@ def list_models():
     def to_entry(path: Path):
         resolved = path.resolve()
         source = "candidate"
-        if resolved == base_weights:
+        is_default = resolved == base_weights
+        if is_default:
             source = "base"
         elif resolved == canonical_target:
             source = "active-copy"
@@ -404,6 +633,7 @@ def list_models():
             "source": source,
             "protected": protected,
             "deletable": deletable,
+            "default": is_default,
         }
 
     entries = [to_entry(p) for p in resources + backups + runs]
@@ -414,6 +644,7 @@ def list_models():
         "models": entries,
         "active_source": active_source_relative,
         "active_target": active_target,
+        "base_path": str(base_weights.relative_to(ROOT)).replace('\\', '/'),
     }
 
 
@@ -435,44 +666,114 @@ async def activate_model(model_path: Path = Body(..., embed=True)):
 
 
 @router.delete("/api/models")
-async def delete_model(model_path: Path = Body(..., embed=True)):
+async def delete_model(
+    model_path: Path | None = Body(None, embed=True),
+    model_paths: list[Path] | None = Body(None, embed=True),
+):
+    candidates: list[Path] = []
+    if model_paths:
+        candidates.extend(model_paths)
+    if model_path:
+        candidates.append(model_path)
+    if not candidates:
+        raise HTTPException(status_code=400, detail="Provide at least one model path to delete")
+
+    active_source_abs = get_active_source(relative=False)
+    active_source_resolved = Path(active_source_abs).resolve() if active_source_abs else None
+    protected_paths = {BASE_MODEL_PATH.resolve(), ACTIVE_MODEL_PATH.resolve()}
+
+    deleted: list[str] = []
+    errors: list[dict[str, str]] = []
+    seen: set[Path] = set()
+
+    for candidate in candidates:
+        try:
+            target = _resolve_path_within_root(candidate)
+        except HTTPException as exc:
+            errors.append({"path": str(candidate), "error": exc.detail})
+            continue
+
+        resolved = target.resolve()
+        if resolved in seen:
+            continue
+        seen.add(resolved)
+
+        if not resolved.exists():
+            errors.append({"path": str(candidate), "error": "Model file not found"})
+            continue
+        if resolved.is_dir():
+            errors.append({"path": str(candidate), "error": "Cannot delete directories"})
+            continue
+        if resolved in protected_paths or (active_source_resolved and resolved == active_source_resolved):
+            errors.append({"path": str(candidate), "error": "This model is protected or currently active."})
+            continue
+
+        try:
+            resolved.unlink()
+            rel = str(resolved.relative_to(ROOT)).replace("\\", "/")
+            deleted.append(rel)
+            logger.info("Deleted model weights at %s", resolved)
+        except Exception as exc:  # pragma: no cover - filesystem errors
+            errors.append({"path": str(candidate), "error": str(exc)})
+
+    if not deleted and errors:
+        raise HTTPException(status_code=400, detail=errors)
+
+    return {"deleted": deleted, "errors": errors}
+
+
+@router.post("/api/models/rename")
+async def rename_model(
+    model_path: Path = Body(..., embed=True),
+    new_name: str = Body(..., embed=True),
+):
     candidate = _resolve_path_within_root(model_path)
     resolved = candidate.resolve()
     if not resolved.exists():
         raise HTTPException(status_code=404, detail="Model file not found")
     if resolved.is_dir():
-        raise HTTPException(status_code=400, detail="Cannot delete directories")
+        raise HTTPException(status_code=400, detail="Cannot rename directories")
 
+    safe_name = _safe_model_name(new_name)
+    target = resolved.with_name(safe_name)
+
+    if target.exists():
+        raise HTTPException(status_code=400, detail="A model with that name already exists")
+
+    protected_paths = {BASE_MODEL_PATH.resolve(), ACTIVE_MODEL_PATH.resolve()}
     active_source_abs = get_active_source(relative=False)
     active_source_resolved = Path(active_source_abs).resolve() if active_source_abs else None
-    protected_paths = {BASE_MODEL_PATH.resolve(), ACTIVE_MODEL_PATH.resolve()}
+
     if resolved in protected_paths or (active_source_resolved and resolved == active_source_resolved):
         raise HTTPException(status_code=400, detail="This model is protected or currently active.")
 
-    resolved.unlink()
-    logger.info("Deleted model weights at %s", resolved)
-    return {"message": "Model deleted"}
+    try:
+        resolved.rename(target)
+    except Exception as exc:  # pragma: no cover - filesystem errors
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    logger.info("Renamed model %s -> %s", resolved, target)
+    return {
+        "path": str(target.relative_to(ROOT)).replace("\\", "/"),
+        "name": target.name,
+    }
 
 
 @router.get("/api/outputs")
 def list_outputs():
-    outputs_dir = ROOT / "outputs"
-    preview_dir = ROOT / "preview_outputs"
-    files = []
-    for directory in [outputs_dir, preview_dir, OUTPUT_DIR]:
-        if not directory.exists():
-            continue
-        for path in directory.glob("*.mp4"):
-            rel = path.relative_to(ROOT)
-            files.append(
-                {
-                    "path": str(rel).replace('\\', '/'),
-                    "name": path.name,
-                    "modified": path.stat().st_mtime,
-                    "size": path.stat().st_size,
-                    "url": "/" + str(rel).replace('\\', '/'),
-                }
-            )
-    dedup = {entry["path"]: entry for entry in files}
-    ordered = sorted(dedup.values(), key=lambda f: f["modified"], reverse=True)
-    return {"videos": ordered}
+    entries = _collect_video_entries()
+    videos = []
+    for entry in entries.values():
+        video = {
+            "path": entry["path"],
+            "name": entry["name"],
+            "modified": entry["modified"],
+            "size": entry["size"],
+            "category": entry["category"],
+            "active": entry["active"],
+        }
+        if entry.get("url"):
+            video["url"] = entry["url"]
+        videos.append(video)
+    videos.sort(key=lambda item: item["modified"], reverse=True)
+    return {"videos": videos}

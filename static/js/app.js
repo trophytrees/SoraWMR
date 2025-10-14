@@ -13,6 +13,7 @@ const previewInput = document.getElementById("preview-input");
 const previewPanel = document.getElementById("preview-panel");
 const previewPlayer = document.getElementById("preview-player");
 const previewDownload = document.getElementById("preview-download");
+const previewPlaceholder = document.querySelector(".preview-placeholder");
 
 const queueList = document.getElementById("queue-list");
 const queueEmpty = document.getElementById("queue-empty");
@@ -28,7 +29,26 @@ const previewModal = document.getElementById("preview-modal");
 const modalVideo = document.getElementById("modal-video");
 const modalClose = document.getElementById("modal-close");
 
-const annotationVideoSelect = document.getElementById("annotation-video");
+const activeVideoSelect = document.getElementById("active-video-select");
+const videoLibrarySelect = document.getElementById("video-library-select");
+const videoDeleteBtn = document.getElementById("video-delete");
+const videoRefreshBtn = document.getElementById("video-refresh");
+const activeVideoHint = document.getElementById("active-video-hint");
+const annotationVideoLabel = document.getElementById("annotation-video-label");
+
+const trainingVideoUpload = document.getElementById("training-video-upload");
+const trainingVideoList = document.getElementById("training-video-list");
+const trainingVideoDeleteBtn = document.getElementById("training-video-delete");
+const trainingVideoRefreshBtn = document.getElementById("training-video-refresh");
+
+const modelRenameModal = document.getElementById("model-rename-modal");
+const modelRenameForm = document.getElementById("model-rename-form");
+const modelRenameInput = document.getElementById("model-rename-input");
+const modelRenameConfirm = document.getElementById("model-rename-confirm");
+const modelRenameCancel = document.getElementById("model-rename-cancel");
+const modelRenameDismiss = document.getElementById("model-rename-dismiss");
+const modelDeleteSelectedBtn = document.getElementById("model-delete-selected");
+
 const annotationSlider = document.getElementById("annotation-slider");
 const annotationTimeLabel = document.getElementById("annotation-time-label");
 const annotationLabelSelect = document.getElementById("annotation-label");
@@ -50,11 +70,15 @@ const annotationSavedTotal = document.getElementById("annotation-saved-total");
 
 const annotationCtx = annotationCanvas?.getContext("2d");
 
-const previewCandidates = new Set();
 let lastUploadedTaskId = null;
 let annotationSliderTimer = null;
 let annotationSavedSamples = [];
 let modelsCache = [];
+let videoLibrary = [];
+let activeVideoPath = "";
+let baseModelPath = "";
+const handledTrainingJobs = new Set();
+let pendingRename = null;
 
 const annotationLabelColors = {
     watermark: "#38bdf8",
@@ -116,6 +140,401 @@ function setAnnotationStatus(message, isError = false) {
     annotationStatus.textContent = message;
     annotationStatus.classList.toggle("text-rose-200", Boolean(isError));
     annotationStatus.classList.toggle("text-slate-300/90", !isError);
+}
+
+const VIDEO_CATEGORY_LABELS = {
+    upload: "Upload",
+    output: "Cleaned",
+    preview: "Preview",
+    training: "Training",
+};
+
+function getVideoEntry(path) {
+    if (!path) return null;
+    const target = normalisePath(path);
+    return videoLibrary.find((entry) => normalisePath(entry.path) === target) || null;
+}
+
+function formatVideoOptionLabel(entry) {
+    const label = VIDEO_CATEGORY_LABELS[entry.category] || "Source";
+    return `${entry.name} • ${label}`;
+}
+
+function splitVideoLibraryByCategory() {
+    return videoLibrary.reduce(
+        (acc, entry) => {
+            const bucket = acc[entry.category] || acc.misc;
+            bucket.push(entry);
+            return acc;
+        },
+        { upload: [], output: [], preview: [], training: [], misc: [] },
+    );
+}
+
+function renderVideoLibrary() {
+    const grouped = splitVideoLibraryByCategory();
+
+    if (activeVideoSelect) {
+        if (!videoLibrary.length) {
+            activeVideoSelect.innerHTML = '<option value="">No videos available</option>';
+            activeVideoSelect.disabled = true;
+        } else {
+            activeVideoSelect.disabled = false;
+            activeVideoSelect.innerHTML = '<option value="">Select a video…</option>';
+            ["upload", "output", "preview", "training", "misc"].forEach((category) => {
+                const entries = grouped[category];
+                if (!entries || !entries.length) return;
+                const group = document.createElement("optgroup");
+                group.label = VIDEO_CATEGORY_LABELS[category] || "Other";
+                entries.forEach((entry) => {
+                    const option = document.createElement("option");
+                    option.value = entry.path;
+                    option.textContent = formatVideoOptionLabel(entry);
+                    option.dataset.category = category;
+                    group.appendChild(option);
+                });
+                activeVideoSelect.appendChild(group);
+            });
+            const desired =
+                activeVideoPath && videoLibrary.some((entry) => entry.path === activeVideoPath)
+                    ? activeVideoPath
+                    : "";
+            activeVideoSelect.value = desired;
+        }
+    }
+
+    if (videoLibrarySelect) {
+        videoLibrarySelect.innerHTML = "";
+        ["upload", "output", "preview", "misc"].forEach((category) => {
+            const entries = grouped[category];
+            if (!entries || !entries.length) return;
+            const group = document.createElement("optgroup");
+            group.label = VIDEO_CATEGORY_LABELS[category] || "Other";
+            entries.forEach((entry) => {
+                const option = document.createElement("option");
+                option.value = entry.path;
+                option.textContent = formatVideoOptionLabel(entry);
+                option.dataset.category = category;
+                group.appendChild(option);
+            });
+            videoLibrarySelect.appendChild(group);
+        });
+        updateVideoDeleteState();
+    }
+
+    if (trainingVideoList) {
+        trainingVideoList.innerHTML = "";
+        const entries = grouped.training || [];
+        entries.forEach((entry) => {
+            const option = document.createElement("option");
+            option.value = entry.path;
+            option.textContent = entry.name;
+            trainingVideoList.appendChild(option);
+        });
+        updateTrainingDeleteState();
+    }
+
+    updateAnnotationVideoDisplay();
+    refreshPreviewOptions();
+}
+
+function refreshPreviewOptions() {
+    if (!previewSelect) return;
+    const current = previewSelect.value;
+    previewSelect.innerHTML = '<option value="">Select an uploaded or output video…</option>';
+    videoLibrary
+        .filter((entry) => entry.category !== "training")
+        .forEach((entry) => {
+            const option = document.createElement("option");
+            option.value = entry.path;
+            option.textContent = formatVideoOptionLabel(entry);
+            previewSelect.appendChild(option);
+        });
+    if (current) {
+        previewSelect.value = current;
+    }
+}
+
+function updateVideoDeleteState() {
+    if (!videoDeleteBtn || !videoLibrarySelect) return;
+    const selected = Array.from(videoLibrarySelect.selectedOptions || []);
+    videoDeleteBtn.disabled = selected.length === 0;
+}
+
+function updateTrainingDeleteState() {
+    if (!trainingVideoDeleteBtn || !trainingVideoList) return;
+    const selected = Array.from(trainingVideoList.selectedOptions || []);
+    trainingVideoDeleteBtn.disabled = selected.length === 0;
+}
+
+function updateAnnotationVideoDisplay() {
+    if (!annotationVideoLabel) return;
+    const entry = getVideoEntry(activeVideoPath);
+    if (entry) {
+        annotationVideoLabel.textContent = formatVideoOptionLabel(entry);
+        annotationVideoLabel.classList.remove("empty");
+        if (activeVideoHint) {
+            activeVideoHint.textContent = "The active video drives the annotation studio and preview player.";
+        }
+    } else {
+        annotationVideoLabel.textContent = "No video selected yet.";
+        annotationVideoLabel.classList.add("empty");
+        if (activeVideoHint) {
+            activeVideoHint.textContent = "Add or select a video above to get started.";
+        }
+    }
+}
+
+function buildSuggestedModelName(sourceName = "model") {
+    const safe = (sourceName || "model").replace(/[^A-Za-z0-9_-]/g, "_") || "model";
+    const stamp = new Date().toISOString().replace(/[-:TZ.]/g, "").slice(0, 12);
+    return `${safe}_finetune_${stamp}.pt`;
+}
+
+function resolveVideoUrl(path) {
+    if (!path) return "";
+    const entry = getVideoEntry(path);
+    if (entry?.url) {
+        const url = entry.url.startsWith("/") ? entry.url : `/${entry.url}`;
+        return url;
+    }
+    const cleanPath = normalisePath(path);
+    return cleanPath.startsWith("/") ? cleanPath : `/${cleanPath}`;
+}
+
+async function fetchVideoLibrary({ silent = false } = {}) {
+    try {
+        const response = await fetch("/api/video-sources");
+        if (!response.ok) throw new Error(await response.text());
+        const data = await response.json();
+        const incoming = data.videos || [];
+        videoLibrary = incoming.map((entry) => ({
+            ...entry,
+            path: normalisePath(entry.path),
+        }));
+        activeVideoPath = data.active ? normalisePath(data.active) : "";
+        renderVideoLibrary();
+        ensureAnnotationVideo(false);
+    } catch (error) {
+        if (!silent) {
+            toast(`Failed to load video library: ${error}`, true);
+        }
+    }
+}
+
+async function setActiveVideo(path, { silent = false } = {}) {
+    try {
+        const response = await fetch("/api/video-sources/active", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ video_path: path || null }),
+        });
+        if (!response.ok) throw new Error(await response.text());
+        const data = await response.json();
+        activeVideoPath = data.active ? normalisePath(data.active) : "";
+        await fetchVideoLibrary({ silent: true });
+        ensureAnnotationVideo(true);
+        if (!silent) {
+            const entry = getVideoEntry(activeVideoPath);
+            toast(entry ? `Active video set to ${entry.name}` : "Active video cleared");
+        }
+    } catch (error) {
+        if (!silent) {
+            toast(`Failed to set active video: ${error}`, true);
+        }
+    }
+}
+
+function ensureAnnotationVideo(forceReload = false) {
+    updateAnnotationVideoDisplay();
+    if (!activeVideoPath) {
+        annotationState.videoPath = "";
+        if (annotationSlider) {
+            annotationSlider.disabled = true;
+        }
+        setAnnotationStatus("Select a video to begin annotating.", true);
+        setHidden(annotationEmptyMessage, false);
+        return;
+    }
+    const changed = annotationState.videoPath !== activeVideoPath;
+    annotationState.videoPath = activeVideoPath;
+    if (changed || forceReload) {
+        handleAnnotationVideoChange(true, activeVideoPath);
+    }
+}
+
+function openModelRenameModal(payload) {
+    if (!modelRenameModal || !modelRenameInput) return;
+    pendingRename = payload;
+    modelRenameInput.value = payload.suggested || "";
+    modelRenameInput.dataset.path = payload.path;
+    modelRenameModal.classList.remove("hidden");
+    modelRenameInput.focus();
+}
+
+function closeModelRenameModal(markHandled = false) {
+    if (!modelRenameModal) return;
+    modelRenameModal.classList.add("hidden");
+    if (markHandled && pendingRename) {
+        handledTrainingJobs.add(pendingRename.jobId);
+    }
+    if (modelRenameInput) {
+        delete modelRenameInput.dataset.path;
+    }
+    pendingRename = null;
+}
+
+function updateModelBulkState() {
+    if (!modelDeleteSelectedBtn || !modelsTableBody) return;
+    const selected = Array.from(modelsTableBody.querySelectorAll("input.model-select:checked"));
+    modelDeleteSelectedBtn.disabled = selected.length === 0;
+}
+
+async function handleModelBulkDelete() {
+    if (!modelsTableBody || !modelDeleteSelectedBtn) return;
+    const selected = Array.from(modelsTableBody.querySelectorAll("input.model-select:checked"));
+    if (!selected.length) return;
+    const paths = selected.map((checkbox) => checkbox.value);
+    const names = selected.map((checkbox) => checkbox.dataset.name || checkbox.value);
+    const message =
+        paths.length === 1
+            ? `Delete ${names[0]}? This cannot be undone.`
+            : `Delete ${paths.length} models? This cannot be undone.`;
+    if (!confirm(message)) {
+        return;
+    }
+    modelDeleteSelectedBtn.disabled = true;
+    try {
+        const response = await fetch("/api/models", {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ model_paths: paths }),
+        });
+        if (!response.ok) throw new Error(await response.text());
+        toast(`Deleted ${paths.length} model${paths.length === 1 ? "" : "s"}.`);
+        await fetchModels();
+    } catch (error) {
+        toast(`Delete failed: ${error}`, true);
+    } finally {
+        modelDeleteSelectedBtn.disabled = false;
+    }
+}
+
+async function handleVideoDelete() {
+    if (!videoLibrarySelect || !videoDeleteBtn) return;
+    const selected = Array.from(videoLibrarySelect.selectedOptions || []).map((opt) => opt.value);
+    if (!selected.length) return;
+    const message =
+        selected.length === 1
+            ? `Delete ${selected[0]}? This cannot be undone.`
+            : `Delete ${selected.length} videos? This cannot be undone.`;
+    if (!confirm(message)) {
+        return;
+    }
+    videoDeleteBtn.disabled = true;
+    try {
+        const response = await fetch("/api/video-sources", {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ video_paths: selected }),
+        });
+        if (!response.ok) throw new Error(await response.text());
+        toast(`Deleted ${selected.length} video${selected.length === 1 ? "" : "s"}.`);
+        await fetchVideoLibrary({ silent: true });
+    } catch (error) {
+        toast(`Failed to delete videos: ${error}`, true);
+    } finally {
+        videoDeleteBtn.disabled = false;
+        updateVideoDeleteState();
+    }
+}
+
+async function handleTrainingDelete() {
+    if (!trainingVideoList || !trainingVideoDeleteBtn) return;
+    const selected = Array.from(trainingVideoList.selectedOptions || []).map((opt) => opt.value);
+    if (!selected.length) return;
+    const message =
+        selected.length === 1
+            ? `Delete ${selected[0]} from training sources?`
+            : `Delete ${selected.length} training videos?`;
+    if (!confirm(`${message} This cannot be undone.`)) {
+        return;
+    }
+    trainingVideoDeleteBtn.disabled = true;
+    try {
+        const response = await fetch("/api/video-sources", {
+            method: "DELETE",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ video_paths: selected }),
+        });
+        if (!response.ok) throw new Error(await response.text());
+        toast(`Removed ${selected.length} training video${selected.length === 1 ? "" : "s"}.`);
+        await fetchVideoLibrary({ silent: true });
+    } catch (error) {
+        toast(`Failed to delete training videos: ${error}`, true);
+    } finally {
+        trainingVideoDeleteBtn.disabled = false;
+        updateTrainingDeleteState();
+    }
+}
+
+async function handleTrainingUpload(event) {
+    const input = event.target;
+    if (!input?.files?.length) return;
+    const files = Array.from(input.files);
+    for (const file of files) {
+        const formData = new FormData();
+        formData.append("video", file);
+        try {
+            const response = await fetch("/api/training-videos", {
+                method: "POST",
+                body: formData,
+            });
+            if (!response.ok) throw new Error(await response.text());
+            const entry = await response.json();
+            toast(`Uploaded ${entry?.name || file.name}`);
+        } catch (error) {
+            toast(`Upload failed for ${file.name}: ${error}`, true);
+        }
+    }
+    input.value = "";
+    await fetchVideoLibrary({ silent: true });
+}
+
+async function handleModelRenameSubmit(event) {
+    event.preventDefault();
+    if (!pendingRename || !modelRenameInput) {
+        closeModelRenameModal(true);
+        return;
+    }
+    const path = modelRenameInput.dataset.path || pendingRename.path;
+    const value = modelRenameInput.value.trim();
+    if (!value) {
+        toast("Please provide a name for the model copy.", true);
+        modelRenameInput.focus();
+        return;
+    }
+    if (modelRenameConfirm) {
+        modelRenameConfirm.disabled = true;
+    }
+    try {
+        const response = await fetch("/api/models/rename", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ model_path: path, new_name: value }),
+        });
+        if (!response.ok) throw new Error(await response.text());
+        const renamed = await response.json();
+        toast(`Model saved as ${renamed?.name || value}`);
+        closeModelRenameModal(true);
+        await fetchModels();
+    } catch (error) {
+        toast(`Rename failed: ${error}`, true);
+    } finally {
+        if (modelRenameConfirm) {
+            modelRenameConfirm.disabled = false;
+        }
+    }
 }
 
 function pointerToCanvas(event) {
@@ -332,9 +751,8 @@ async function fetchAnnotationSummary() {
     }
 }
 
-async function handleAnnotationVideoChange(loadFrame = true) {
-    if (!annotationVideoSelect) return;
-    const value = annotationVideoSelect.value;
+async function handleAnnotationVideoChange(loadFrame = true, explicitPath) {
+    const value = explicitPath ?? annotationState.videoPath ?? activeVideoPath ?? "";
     annotationState.videoPath = value;
     annotationState.boxes = [];
     annotationState.currentBox = null;
@@ -354,7 +772,7 @@ async function handleAnnotationVideoChange(loadFrame = true) {
             annotationRefreshBtn.disabled = true;
         }
         setHidden(annotationEmptyMessage, false);
-        setAnnotationStatus("Select a video to begin annotating.");
+        setAnnotationStatus("Select a video to begin annotating.", true);
         return;
     }
 
@@ -395,13 +813,6 @@ async function handleAnnotationVideoChange(loadFrame = true) {
             annotationRefreshBtn.disabled = true;
         }
     }
-}
-
-function selectAnnotationVideo(videoPath, autoLoad = true) {
-    if (!annotationVideoSelect) return;
-    if (videoPath && !previewCandidates.has(videoPath)) return;
-    annotationVideoSelect.value = videoPath || "";
-    handleAnnotationVideoChange(autoLoad);
 }
 
 function handleAnnotationSliderInput(event) {
@@ -619,48 +1030,19 @@ previewModal?.addEventListener("click", (event) => {
     }
 });
 document.addEventListener("keydown", (event) => {
-    if (event.key === "Escape" && !previewModal?.classList.contains("hidden")) {
-        closePreviewModal();
+    if (event.key === "Escape") {
+        if (modelRenameModal && !modelRenameModal.classList.contains("hidden")) {
+            closeModelRenameModal(true);
+            return;
+        }
+        if (!previewModal?.classList.contains("hidden")) {
+            closePreviewModal();
+        }
     }
 });
 
 function normalisePath(path) {
     return path ? path.replace(/\\/g, "/") : path;
-}
-
-function updatePreviewOptions(paths) {
-    let changed = false;
-    paths.forEach((p) => {
-        if (p && !previewCandidates.has(p)) {
-            previewCandidates.add(p);
-            changed = true;
-        }
-    });
-    if (!changed) return;
-    const sorted = [...previewCandidates].sort();
-    if (previewSelect) {
-        previewSelect.innerHTML = '<option value="">Select an uploaded or output video…</option>';
-        sorted.forEach((path) => {
-            const option = document.createElement("option");
-            option.value = path;
-            option.textContent = path;
-            previewSelect.appendChild(option);
-        });
-    }
-    if (annotationVideoSelect) {
-        const previous = annotationVideoSelect.value;
-        annotationVideoSelect.innerHTML = '<option value="">Select an uploaded or output video…</option>';
-        sorted.forEach((path) => {
-            const option = document.createElement("option");
-            option.value = path;
-            option.textContent = path;
-            annotationVideoSelect.appendChild(option);
-        });
-        if (previous && previewCandidates.has(previous)) {
-            annotationVideoSelect.value = previous;
-        }
-        handleAnnotationVideoChange(false);
-    }
 }
 
 previewSelect?.addEventListener("change", () => {
@@ -670,12 +1052,14 @@ previewSelect?.addEventListener("change", () => {
 });
 
 function showPreview(path) {
-    if (!path) return;
-    const cleanPath = normalisePath(path);
-    const baseUrl = cleanPath.startsWith("/") ? cleanPath : `/${cleanPath}`;
-    previewPlayer.src = `${baseUrl}?t=${Date.now()}`;
-    previewDownload.href = baseUrl;
+    if (!path || !previewPlayer) return;
+    const source = resolveVideoUrl(path);
+    previewPlayer.src = `${source}?t=${Date.now()}`;
+    if (previewDownload) {
+        previewDownload.href = source;
+    }
     previewPanel?.classList.remove("hidden");
+    setHidden(previewPlaceholder, true);
     previewPlayer.load();
 }
 
@@ -720,6 +1104,12 @@ async function handlePreviewSubmit(event) {
         fetchJobs();
     } catch (error) {
         toast(`Preview failed: ${error}`, true);
+        previewPanel?.classList.add("hidden");
+        setHidden(previewPlaceholder, false);
+        if (previewPlayer) {
+            previewPlayer.pause();
+            previewPlayer.removeAttribute("src");
+        }
     }
 }
 
@@ -791,14 +1181,12 @@ async function fetchRemovalTasks() {
         const data = await response.json();
         const queueItems = [];
         const finishedItems = [];
-        const previewPaths = new Set();
         let newPreviewPath = null;
 
         (data.tasks || []).forEach((task) => {
             const statusKey = (task.status || "").toUpperCase();
             const videoPath = normalisePath(task.video_path);
             if (videoPath) {
-                previewPaths.add(videoPath);
                 if (task.id === lastUploadedTaskId && !newPreviewPath) {
                     newPreviewPath = videoPath;
                 }
@@ -870,13 +1258,15 @@ async function fetchRemovalTasks() {
         renderCollection(finishedList, finishedItems);
         setHidden(finishedEmpty, finishedItems.length !== 0);
 
-        if (previewPaths.size) {
-            updatePreviewOptions(Array.from(previewPaths));
-        }
         if (newPreviewPath) {
-            previewInput.value = newPreviewPath;
-            previewSelect.value = newPreviewPath;
-            selectAnnotationVideo(newPreviewPath);
+            const normalised = normalisePath(newPreviewPath);
+            if (previewInput) {
+                previewInput.value = normalised;
+            }
+            if (previewSelect) {
+                previewSelect.value = normalised;
+            }
+        await setActiveVideo(normalised, { silent: true });
             lastUploadedTaskId = null;
         }
         [queueList, finishedList].forEach((container) => {
@@ -895,31 +1285,52 @@ async function fetchJobs() {
         if (!response.ok) throw new Error(await response.text());
         const data = await response.json();
         const rows = [];
-        data.jobs.forEach((job) => {
+        let refreshVideoSources = false;
+        let renamePayload = null;
+        for (const job of data.jobs) {
             const output = job.result?.output;
             let outputCell = "-";
             if (output) {
                 if (output.preview) {
                     const path = normalisePath(output.preview);
-                    outputCell = `<a href="/${path}" target="_blank">Preview</a>`;
-                    updatePreviewOptions([path]);
+                    const url = resolveVideoUrl(path);
+                    outputCell = `<a href="${url}" target="_blank" rel="noopener">Preview</a>`;
                     if (job.status === "COMPLETED") {
                         showPreview(path);
+                        refreshVideoSources = true;
                     }
                 } else if (output.best_weights || output.backup_path) {
                     const lines = [];
-                    if (output.best_weights) {
-                        lines.push(`Best: ${output.best_weights}`);
-                    }
-                    if (output.backup_path) {
-                        lines.push(`Backup: ${output.backup_path}`);
-                    }
-                    outputCell = lines.join("<br/>");
-                } else if (typeof output === "string") {
-                    outputCell = output;
-                } else {
-                    outputCell = JSON.stringify(output);
+                if (output.best_weights) {
+                    lines.push(`Best: ${output.best_weights}`);
                 }
+                if (output.backup_path) {
+                    lines.push(`Backup: ${output.backup_path}`);
+                }
+                outputCell = lines.join("<br/>");
+                if (
+                    job.type === "TRAINING" &&
+                    job.status === "COMPLETED" &&
+                    job.result?.started_from_base &&
+                    job.result?.backup_path &&
+                    !handledTrainingJobs.has(job.id)
+                ) {
+                    const backupPath = normalisePath(job.result.backup_path);
+                    const startWeights = normalisePath(job.result.start_weights || "");
+                    const sourceName = startWeights.split("/").pop()?.replace(/\.pt$/, "") || "model";
+                    if (!renamePayload) {
+                        renamePayload = {
+                            jobId: job.id,
+                            path: backupPath,
+                            suggested: buildSuggestedModelName(sourceName),
+                        };
+                    }
+                }
+            } else if (typeof output === "string") {
+                outputCell = output;
+            } else {
+                outputCell = JSON.stringify(output);
+            }
             }
             rows.push(`
                 <td>${job.id}</td>
@@ -932,8 +1343,14 @@ async function fetchJobs() {
             if (job.status === "FAILED" && job.error) {
                 rows.push(`<td colspan="6" class="error">${job.error}</td>`);
             }
-        });
+        }
         renderTableRows(jobsTableBody, rows);
+        if (refreshVideoSources) {
+            await fetchVideoLibrary({ silent: true });
+        }
+        if (renamePayload && !pendingRename && !handledTrainingJobs.has(renamePayload.jobId)) {
+            openModelRenameModal(renamePayload);
+        }
     } catch (error) {
         console.error("Failed to fetch jobs", error);
     }
@@ -945,6 +1362,7 @@ async function fetchModels() {
         if (!response.ok) throw new Error(await response.text());
         const data = await response.json();
         modelsCache = data.models || [];
+        baseModelPath = data.base_path ? normalisePath(data.base_path) : "";
         const activeSource = data.active_source || (modelsCache.find((m) => m.active)?.path) || "";
         const activeTarget = data.active_target || "";
 
@@ -961,8 +1379,9 @@ async function fetchModels() {
             modelsCache.forEach((model) => {
                 const option = document.createElement("option");
                 option.value = model.path;
-                option.textContent = model.name;
+                option.textContent = model.default ? `${model.name} [DEFAULT]` : model.name;
                 option.dataset.active = model.active ? "true" : "false";
+                option.dataset.default = model.default ? "true" : "false";
                 if (model.is_new || model.tag === "new") {
                     option.dataset.new = "true";
                 }
@@ -980,6 +1399,8 @@ async function fetchModels() {
             if (cleanModelHint) {
                 if (!modelsCache.length) {
                     cleanModelHint.textContent = "Drop detector weights into /resources to load them here.";
+                } else if (selectedOption?.dataset.default === "true") {
+                    cleanModelHint.textContent = "Default base weights will be copied when you fine-tune.";
                 } else if (selectedOption?.dataset.active === "true") {
                     cleanModelHint.textContent = "Active weights are ready for the next removal job.";
                 } else {
@@ -1000,7 +1421,9 @@ async function fetchModels() {
                 const option = document.createElement("option");
                 option.value = model.path;
                 let label = model.name;
-                if (model.source === "base") {
+                if (model.default) {
+                    label += " [DEFAULT]";
+                } else if (model.source === "base") {
                     label += " - Base";
                 } else if (model.source === "active-copy") {
                     label += " - Active Copy";
@@ -1011,6 +1434,7 @@ async function fetchModels() {
                     label += " (Active)";
                 }
                 option.textContent = label;
+                option.dataset.default = model.default ? "true" : "false";
                 trainWeightsSelect.appendChild(option);
             });
             const available = modelsCache.map((model) => model.path);
@@ -1022,16 +1446,22 @@ async function fetchModels() {
         }
 
         const rows = modelsCache.map((model) => {
-            const updated = model.modified
-                ? new Date(model.modified * 1000).toLocaleString()
-                : "-";
-            const statusBadge = model.active
-                ? '<span class="badge badge-active"><span class="badge-dot"></span> Active</span>'
-                : model.source === "base"
-                    ? '<span class="badge badge-base">Base Snapshot</span>'
-                    : model.source === "active-copy"
-                        ? '<span class="badge badge-sync">Synced Copy</span>'
-                        : '<span class="badge badge-idle">Available</span>';
+            const updated = model.modified ? new Date(model.modified * 1000).toLocaleString() : "-";
+            const checkbox = model.deletable
+                ? `<input type="checkbox" class="model-select" value="${model.path}" data-name="${model.name}">`
+                : "";
+            let statusBadge = "";
+            if (model.active) {
+                statusBadge = '<span class="badge badge-active"><span class="badge-dot"></span> Active</span>';
+            } else if (model.default) {
+                statusBadge = '<span class="badge badge-base">Default</span>';
+            } else if (model.source === "base") {
+                statusBadge = '<span class="badge badge-base">Base Snapshot</span>';
+            } else if (model.source === "active-copy") {
+                statusBadge = '<span class="badge badge-sync">Synced Copy</span>';
+            } else {
+                statusBadge = '<span class="badge badge-idle">Available</span>';
+            }
             const actions = [];
             if (!model.active) {
                 actions.push(
@@ -1043,13 +1473,17 @@ async function fetchModels() {
                     `<button class="link-btn danger-link" data-delete="${model.path}" data-model-name="${model.name}">Delete</button>`,
                 );
             }
-            const actionCell = actions.length
-                ? actions.join(" ")
-                : '<span class="muted-text">Locked</span>';
-            const titleStack = model.active
-                ? `<div class="model-title">${model.name}<span class="badge badge-live">Live</span></div>`
-                : `<div class="model-title">${model.name}</div>`;
+            const actionCell = actions.length ? actions.join(" ") : '<span class="muted-text">Locked</span>';
+            const badges = [];
+            if (model.active) {
+                badges.push('<span class="badge badge-live">Live</span>');
+            }
+            if (model.default) {
+                badges.push('<span class="badge badge-base">Default</span>');
+            }
+            const titleStack = `<div class="model-title">${model.name}${badges.join("")}</div>`;
             return `
+                <td>${checkbox}</td>
                 <td>
                     <div class="model-name">${titleStack}</div>
                 </td>
@@ -1073,6 +1507,10 @@ async function fetchModels() {
             const model = modelsCache[idx];
             tr.classList.toggle("active-row", Boolean(model?.active));
         });
+        modelsTableBody.querySelectorAll("input.model-select").forEach((checkbox) => {
+            checkbox.addEventListener("change", updateModelBulkState);
+        });
+        updateModelBulkState();
         modelsTableBody.querySelectorAll("button[data-model]").forEach((btn) => {
             btn.addEventListener("click", async () => {
                 btn.disabled = true;
@@ -1105,7 +1543,7 @@ async function fetchModels() {
                     const response = await fetch("/api/models", {
                         method: "DELETE",
                         headers: { "Content-Type": "application/json" },
-                        body: JSON.stringify({ model_path: btn.dataset.delete }),
+                        body: JSON.stringify({ model_paths: [btn.dataset.delete] }),
                     });
                     if (!response.ok) throw new Error(await response.text());
                     toast(`Deleted ${btn.dataset.modelName || btn.dataset.delete}`);
@@ -1128,12 +1566,8 @@ async function fetchOutputs() {
         if (!response.ok) throw new Error(await response.text());
         const data = await response.json();
         const items = [];
-        const paths = [];
         (data.videos || []).forEach((video) => {
             const path = normalisePath(video.path);
-            if (path) {
-                paths.push(path);
-            }
             const updated = video.modified ? new Date(video.modified * 1000).toLocaleString() : "-";
             const displayName = video.display_name || video.name || (path ? path.split("/").pop() : "Output");
             const previewUrl = video.url || null;
@@ -1171,7 +1605,7 @@ async function fetchOutputs() {
                     }
                 }),
             );
-        updatePreviewOptions(paths);
+        await fetchVideoLibrary({ silent: true });
     } catch (error) {
         console.error("Failed to fetch outputs", error);
     }
@@ -1189,7 +1623,7 @@ function formatBytes(bytes) {
     return `${value.toFixed(1)} ${units[idx]}`;
 }
 
-function init() {
+async function init() {
     cleanForm?.addEventListener("submit", handleCleanSubmit);
     previewForm?.addEventListener("submit", handlePreviewSubmit);
     annotateForm?.addEventListener("submit", handleAnnotateSubmit);
@@ -1198,11 +1632,56 @@ function init() {
     trainDatasetInput?.addEventListener("input", () => {
         trainDatasetInput.dataset.manualTouched = "true";
     });
+    cleanModelSelect?.addEventListener("change", () => {
+        cleanModelSelect.dataset.manualTouched = "true";
+        const selected = cleanModelSelect.selectedOptions[0];
+        if (cleanModelBadge) {
+            const showBadge = Boolean(selected?.dataset.new === "true");
+            setHidden(cleanModelBadge, !showBadge);
+        }
+        if (cleanModelHint) {
+            if (!cleanModelSelect.value) {
+                cleanModelHint.textContent = modelsCache.length
+                    ? "Selecting a weight activates it for upcoming removal jobs."
+                    : "Drop detector weights into /resources to load them here.";
+            } else if (selected?.dataset.default === "true") {
+                cleanModelHint.textContent = "Default base weights will be copied when you fine-tune.";
+            } else if (selected?.dataset.active === "true") {
+                cleanModelHint.textContent = "Active weights are ready for the next removal job.";
+            } else {
+                cleanModelHint.textContent = "Selected weights will activate on your next removal.";
+            }
+        }
+    });
+    trainWeightsSelect?.addEventListener("change", () => {
+        trainWeightsSelect.dataset.manualTouched = "true";
+    });
+    activeVideoSelect?.addEventListener("change", (event) => {
+        setActiveVideo(event.target.value || "");
+    });
+    videoLibrarySelect?.addEventListener("change", updateVideoDeleteState);
+    videoDeleteBtn?.addEventListener("click", handleVideoDelete);
+    videoRefreshBtn?.addEventListener("click", () => fetchVideoLibrary());
+    trainingVideoList?.addEventListener("change", updateTrainingDeleteState);
+    trainingVideoDeleteBtn?.addEventListener("click", handleTrainingDelete);
+    trainingVideoRefreshBtn?.addEventListener("click", () => fetchVideoLibrary());
+    trainingVideoUpload?.addEventListener("change", handleTrainingUpload);
+    modelDeleteSelectedBtn?.addEventListener("click", handleModelBulkDelete);
+    modelRenameForm?.addEventListener("submit", handleModelRenameSubmit);
+    modelRenameCancel?.addEventListener("click", () => closeModelRenameModal(true));
+    modelRenameDismiss?.addEventListener("click", () => closeModelRenameModal(true));
+    modelRenameModal?.addEventListener("click", (event) => {
+        if (event.target === modelRenameModal) {
+            closeModelRenameModal(true);
+        }
+    });
+    updateVideoDeleteState();
+    updateTrainingDeleteState();
+    updateModelBulkState();
     if (annotationImage) {
         annotationImage.style.visibility = "hidden";
     }
 
-    annotationVideoSelect?.addEventListener("change", () => handleAnnotationVideoChange(true));
     annotationSlider?.addEventListener("input", handleAnnotationSliderInput);
     annotationSlider?.addEventListener("change", handleAnnotationSliderChange);
     annotationLabelSelect?.addEventListener("change", handleAnnotationLabelChange);
@@ -1219,6 +1698,7 @@ function init() {
         annotationSlider.disabled = true;
     }
 
+    await fetchVideoLibrary();
     fetchRemovalTasks();
     fetchJobs();
     fetchModels();

@@ -32,6 +32,9 @@ THUMBNAILS_DIR.mkdir(exist_ok=True, parents=True)
 FRAMES_DIR = WORKING_DIR / "frames"
 FRAMES_DIR.mkdir(exist_ok=True, parents=True)
 
+VIDEO_UPLOADS_DIR = WORKING_DIR / "uploads"
+VIDEO_UPLOADS_DIR.mkdir(exist_ok=True, parents=True)
+
 ANNOTATIONS_DIR = ROOT / "datasets" / "manual_annotations"
 ANNOTATIONS_DIR.mkdir(exist_ok=True, parents=True)
 
@@ -43,8 +46,13 @@ ANNOTATION_LABELS_DIR.mkdir(exist_ok=True, parents=True)
 
 ANNOTATION_DATA_YAML = ANNOTATIONS_DIR / "data.yaml"
 
+TRAINING_VIDEO_DIR = ROOT / "datasets" / "training_sources"
+TRAINING_VIDEO_DIR.mkdir(exist_ok=True, parents=True)
+
 BACKUPS_DIR = ROOT / "backups"
 BACKUPS_DIR.mkdir(exist_ok=True, parents=True)
 
 BASE_MODEL_PATH = RESOURCES_DIR / "best_original.pt"
 ACTIVE_MODEL_PATH = RESOURCES_DIR / "best.pt"
+
+ACTIVE_VIDEO_FILE = RESOURCES_DIR / "active_video.txt"
