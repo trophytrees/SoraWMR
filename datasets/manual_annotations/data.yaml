@@ -1,0 +1,7 @@
+path: C:/Users/waxpl/Desktop/SoraWMR/SoraWatermarkCleaner/datasets/manual_annotations
+train: C:/Users/waxpl/Desktop/SoraWMR/SoraWatermarkCleaner/datasets/manual_annotations/images
+val: C:/Users/waxpl/Desktop/SoraWMR/SoraWatermarkCleaner/datasets/manual_annotations/images
+names:
+  0: watermark
+  1: watermark_text
+  2: watermark_icon

@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>SoraWMR Control Center</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        display: ["Inter", "ui-sans-serif", "system-ui"],
+                    },
+                    colors: {
+                        primary: "#38bdf8",
+                    },
+                },
+            },
+        };
+    </script>
+    <link rel="stylesheet" href="/static/css/styles.css" />
+</head>
+<body class="min-h-screen bg-slate-950 font-display text-slate-100 antialiased">
+    <div class="relative overflow-hidden">
+        <div class="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(56,189,248,0.18),transparent_55%)]"></div>
+        <div class="absolute inset-x-0 top-0 h-72 bg-gradient-to-b from-slate-900/70 via-slate-900/40 to-transparent"></div>
+
+        <div class="relative z-10">
+            <header class="mx-auto max-w-7xl px-6 pt-10 pb-8">
+                <div class="flex flex-col gap-6 lg:flex-row lg:items-center lg:justify-between">
+                    <div class="space-y-4">
+                        <span class="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs uppercase tracking-[0.35em] text-slate-200/70">SoraWMR dApp</span>
+                        <h1 class="text-3xl font-semibold text-white lg:text-4xl">Watermark Removal Command Deck</h1>
+                        <p class="max-w-2xl text-sm text-slate-200/80">
+                            Launch removals, run previews, curate annotations, and manage models without leaving the top fold. Everything updates live for rapid iteration.
+                        </p>
+                    </div>
+                    <div class="flex flex-wrap items-center gap-3">
+                        <span class="header-chip">Live queue refreshes every 6s</span>
+                        <span class="header-chip">Active weights sync automatically</span>
+                    </div>
+                </div>
+            </header>
+
+            <main class="mx-auto max-w-7xl px-6 pb-16">
+                <div class="grid gap-6 lg:grid-cols-[320px,minmax(0,1fr)]">
+                    <aside class="flex flex-col gap-6">
+                        <section class="glass-panel p-6 space-y-4">
+                            <div class="flex items-center justify-between gap-3">
+                                <h2 class="section-title">Active Detector</h2>
+                                <span class="badge badge-live">Live</span>
+                            </div>
+                            <p class="text-xs text-slate-300/80">The currently deployed weights power previews, removals, and training runs.</p>
+                            <div id="model-indicator" class="model-indicator-block">Active weights: <code>resources/best.pt</code></div>
+                        </section>
+
+                        <section class="glass-panel p-6 space-y-4">
+                            <div class="flex items-center justify-between gap-3">
+                                <h2 class="section-title">Model Catalog</h2>
+                                <button type="button" id="models-panel-toggle" class="chip-button" aria-expanded="false">Browse</button>
+                            </div>
+                            <p class="text-xs text-slate-300/80">Set active weights or retire old checkpoints without scrolling.</p>
+                            <div id="models-panel" class="model-panel hidden">
+                                <div class="model-panel-inner">
+                                    <table class="model-table text-xs">
+                                        <thead>
+                                            <tr>
+                                                <th>Model</th>
+                                                <th>Location</th>
+                                                <th>Updated</th>
+                                                <th>Size</th>
+                                                <th>Status</th>
+                                                <th></th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="models-table"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+                        </section>
+
+                        <section class="glass-panel p-6 space-y-4">
+                            <div class="flex items-center justify-between gap-3">
+                                <h2 class="section-title">Finished Videos</h2>
+                                <span class="text-[11px] font-semibold uppercase tracking-widest text-slate-300/70">Instant access</span>
+                            </div>
+                            <p class="text-xs text-slate-300/80">Completed removals land here as compact tiles with quick preview and downloads.</p>
+                            <ul id="finished-list" class="stacked-list"></ul>
+                            <p id="finished-empty" class="empty-state text-xs text-slate-400/80">Render a clip to see it appear here.</p>
+                        </section>
+                    </aside>
+
+                    <section class="glass-panel overflow-hidden p-0">
+                        <nav class="tab-nav" role="tablist" id="workspace-tabs">
+                            <button class="tab-button" data-tab="workflow" aria-selected="true">Workflow</button>
+                            <button class="tab-button" data-tab="annotate" aria-selected="false">Annotate</button>
+                            <button class="tab-button" data-tab="training" aria-selected="false">Training</button>
+                        </nav>
+
+                        <div class="tab-panels">
+                            <div class="tab-panel" data-tab-panel="workflow">
+                                <div class="panel-grid">
+                                    <article class="module-card">
+                                        <header>
+                                            <h3>Upload &amp; Clean</h3>
+                                            <p>Queue a clip for watermark removal with compact controls.</p>
+                                        </header>
+                                        <form id="clean-form" class="form-stack" enctype="multipart/form-data">
+                                            <label class="form-field">
+                                                <div class="field-head">
+                                                    <span>Detector weights</span>
+                                                    <span id="clean-model-selected-badge" class="badge badge-new hidden">New</span>
+                                                </div>
+                                                <select id="clean-model" class="glass-input">
+                                                    <option value="">Loading models…</option>
+                                                </select>
+                                                <span id="clean-model-hint" class="hint-text">Selecting a weight activates it for upcoming removal jobs.</span>
+                                            </label>
+                                            <label class="form-field">
+                                                <span class="field-head">Video file</span>
+                                                <input type="file" name="video" accept="video/*" required class="glass-input glass-input-file" />
+                                            </label>
+                                            <button type="submit" class="btn-primary w-full">Queue removal</button>
+                                            <p class="support-text">Tasks run asynchronously—feel free to jump into previews or annotations while it processes.</p>
+                                        </form>
+                                    </article>
+
+                                    <article class="module-card">
+                                        <header>
+                                            <h3>Detection Preview</h3>
+                                            <p>Overlay detections on any upload to double-check coverage.</p>
+                                        </header>
+                                        <form id="preview-form" class="form-stack">
+                                            <label class="form-field">
+                                                <span class="field-head">Video source</span>
+                                                <select id="preview-options" class="glass-input">
+                                                    <option value="">Select an uploaded or output video…</option>
+                                                </select>
+                                            </label>
+                                            <label class="form-field">
+                                                <span class="field-head">Or paste path</span>
+                                                <input type="text" id="preview-input" name="video_path" placeholder="outputs/sample.mp4" class="glass-input" />
+                                            </label>
+                                            <label class="form-field">
+                                                <span class="field-head">Confidence</span>
+                                                <input type="number" name="confidence" value="0.33" step="0.01" class="glass-input" />
+                                            </label>
+                                            <label class="form-field">
+                                                <span class="field-head">IOU Threshold</span>
+                                                <input type="number" name="iou" value="0.45" step="0.01" class="glass-input" />
+                                            </label>
+                                            <button type="submit" class="btn-secondary w-full">Run preview</button>
+                                        </form>
+                                        <div id="preview-panel" class="preview-shell hidden">
+                                            <video id="preview-player" controls preload="metadata"></video>
+                                            <div class="preview-actions">
+                                                <a id="preview-download" class="chip-button" target="_blank" rel="noopener">Download</a>
+                                                <button type="button" data-preview-modal class="chip-button">Open modal</button>
+                                            </div>
+                                        </div>
+                                    </article>
+                                </div>
+
+                                <article class="module-card">
+                                    <header>
+                                        <h3>Live Queue</h3>
+                                        <p>Active tasks stay lean with inline progress.</p>
+                                    </header>
+                                    <ul id="queue-list" class="queue-list"></ul>
+                                    <p id="queue-empty" class="empty-state text-xs text-slate-400/80">No active jobs right now.</p>
+                                </article>
+
+                                <article class="module-card">
+                                    <header>
+                                        <h3>Latest Outputs</h3>
+                                        <p>Recently generated previews and cleaned videos appear instantly.</p>
+                                    </header>
+                                    <ul id="outputs-grid" class="stacked-list"></ul>
+                                    <p id="outputs-empty" class="empty-state text-xs text-slate-400/80">Outputs will appear once generated.</p>
+                                </article>
+                            </div>
+
+                            <div class="tab-panel hidden" data-tab-panel="annotate">
+                                <section class="module-card space-y-6" id="annotation-studio">
+                                    <div class="flex flex-wrap items-center justify-between gap-3">
+                                        <div>
+                                            <h3>Annotation Studio</h3>
+                                            <p>Pull a frame, draw boxes around missed marks, and expand training data.</p>
+                                        </div>
+                                        <div class="annotation-summary">
+                                            Manual dataset <span id="annotation-dataset-count">0</span> frames • <span id="annotation-box-total">0</span> boxes
+                                        </div>
+                                    </div>
+
+                                    <div class="annotation-layout">
+                                        <div class="annotation-controls">
+                                            <label class="form-field">
+                                                <span class="field-head">Video source</span>
+                                                <select id="annotation-video" class="glass-input">
+                                                    <option value="">Select an uploaded or output video…</option>
+                                                </select>
+                                            </label>
+                                            <label class="form-field">
+                                                <div class="field-head flex items-center justify-between">
+                                                    <span>Timestamp</span>
+                                                    <span id="annotation-time-label">00:00</span>
+                                                </div>
+                                                <input type="range" id="annotation-slider" min="0" max="0" step="0.1" value="0" class="accent-primary" disabled />
+                                                <div id="annotation-duration" class="hint-text">Duration: 00:00</div>
+                                            </label>
+                                            <label class="form-field">
+                                                <span class="field-head">Label new boxes as</span>
+                                                <select id="annotation-label" class="glass-input">
+                                                    <option value="watermark">Watermark (general)</option>
+                                                    <option value="watermark_text">Watermark text</option>
+                                                    <option value="watermark_icon">Watermark icon</option>
+                                                </select>
+                                            </label>
+                                            <div class="flex flex-wrap gap-3">
+                                                <button type="button" class="btn-secondary" id="annotation-refresh" disabled>Grab frame</button>
+                                                <button type="button" class="btn-secondary" id="annotation-clear" disabled>Clear boxes</button>
+                                                <button type="button" class="btn-primary grow sm:grow-0" id="annotation-save" disabled>Save to dataset</button>
+                                            </div>
+                                            <div class="annotation-status" id="annotation-status">Select a video to begin annotating.</div>
+                                            <div class="annotation-status">
+                                                Dataset YAML: <code id="annotation-dataset-path">datasets/manual_annotations/data.yaml</code>
+                                            </div>
+                                            <div class="annotation-saved">
+                                                <div class="flex items-center justify-between">
+                                                    <h4>Saved frames</h4>
+                                                    <span class="annotation-chip" id="annotation-saved-total">0 boxes</span>
+                                                </div>
+                                                <p id="annotation-saved-empty" class="hint-text">No frames saved yet. Save annotated frames to build your dataset.</p>
+                                                <ul id="annotation-saved-list" class="annotation-saved-list"></ul>
+                                            </div>
+                                        </div>
+
+                                        <div class="annotation-stage-wrap">
+                                            <div class="annotation-stage">
+                                                <img id="annotation-image" alt="Annotation frame" class="annotation-image" />
+                                                <canvas id="annotation-canvas" class="annotation-canvas"></canvas>
+                                                <div id="annotation-empty" class="annotation-empty-message">Pick a video and timestamp to begin annotating.</div>
+                                            </div>
+                                            <div>
+                                                <h4>Boxes in current frame</h4>
+                                                <ul id="annotation-boxes" class="annotation-boxes"></ul>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </section>
+                            </div>
+
+                            <div class="tab-panel hidden" data-tab-panel="training">
+                                <div class="panel-grid">
+                                    <article class="module-card">
+                                        <header>
+                                            <h3>Auto-Annotation (Roboflow)</h3>
+                                            <p>Batch label missed frames with your Roboflow workflow.</p>
+                                        </header>
+                                        <form id="annotate-form" class="form-stack">
+                                            <label class="form-field">
+                                                <span class="field-head">Image folder</span>
+                                                <input type="text" name="image_dir" value="datasets/missed_frames" required class="glass-input" />
+                                            </label>
+                                            <div class="grid gap-4 sm:grid-cols-2">
+                                                <label class="form-field">
+                                                    <span class="field-head">Confidence ≥</span>
+                                                    <input type="number" step="0.01" name="confidence" value="0.3" class="glass-input" />
+                                                </label>
+                                                <label class="form-field">
+                                                    <span class="field-head">Workspace</span>
+                                                    <input type="text" name="workspace" value="fattyb" required class="glass-input" />
+                                                </label>
+                                                <label class="form-field">
+                                                    <span class="field-head">Workflow</span>
+                                                    <input type="text" name="workflow" value="find-objects" required class="glass-input" />
+                                                </label>
+                                                <label class="form-field sm:col-span-2">
+                                                    <span class="field-head">API Key</span>
+                                                    <input type="text" name="api_key" value="EVcvjbMfr79JoMG9yjjW" required class="glass-input" />
+                                                </label>
+                                            </div>
+                                            <button type="submit" class="btn-secondary w-full">Run auto label</button>
+                                        </form>
+                                    </article>
+
+                                    <article class="module-card">
+                                        <header>
+                                            <h3>Fine-Tune Detector</h3>
+                                            <p>Kick off YOLO finetuning with confident defaults.</p>
+                                        </header>
+                                        <form id="train-form" class="form-stack">
+                                            <label class="form-field">
+                                                <span class="field-head">Starting weights</span>
+                                                <select id="train-weights" name="weights_path" class="glass-input">
+                                                    <option value="">Use active detector</option>
+                                                </select>
+                                            </label>
+                                            <label class="form-field">
+                                                <span class="field-head">Dataset YAML</span>
+                                                <input type="text" name="data_yaml" value="datasets/manual_annotations/data.yaml" required class="glass-input" />
+                                            </label>
+                                            <div class="grid gap-4 sm:grid-cols-2">
+                                                <label class="form-field">
+                                                    <span class="field-head">Epochs</span>
+                                                    <input type="number" name="epochs" value="10" class="glass-input" />
+                                                </label>
+                                                <label class="form-field">
+                                                    <span class="field-head">LR start</span>
+                                                    <input type="number" step="1e-5" name="lr0" value="0.0005" class="glass-input" />
+                                                </label>
+                                                <label class="form-field">
+                                                    <span class="field-head">LR final</span>
+                                                    <input type="number" step="1e-5" name="lrf" value="0.0005" class="glass-input" />
+                                                </label>
+                                                <label class="form-field">
+                                                    <span class="field-head">Batch size</span>
+                                                    <input type="number" name="batch" value="16" class="glass-input" />
+                                                </label>
+                                            </div>
+                                            <button type="submit" class="btn-secondary w-full">Start finetuning</button>
+                                            <p class="hint-text">Jobs execute with the active detector weights—watch progress below.</p>
+                                        </form>
+                                    </article>
+                                </div>
+
+                                <article class="module-card">
+                                    <header>
+                                        <h3>Background Jobs</h3>
+                                        <p>Monitor annotation, training, and preview jobs as they progress.</p>
+                                    </header>
+                                    <div class="table-shell">
+                                        <table class="jobs-table text-xs">
+                                            <thead>
+                                                <tr>
+                                                    <th>ID</th>
+                                                    <th>Type</th>
+                                                    <th>Status</th>
+                                                    <th>Progress</th>
+                                                    <th>Message</th>
+                                                    <th>Output</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="jobs-table"></tbody>
+                                        </table>
+                                    </div>
+                                </article>
+                            </div>
+                        </div>
+                    </section>
+                </div>
+            </main>
+
+            <footer class="mx-auto max-w-7xl px-6 pb-12 text-xs text-slate-400">
+                <p>&copy; {{ year }} SoraWMR. Stay in the command deck to preview, download, or iterate instantly.</p>
+            </footer>
+        </div>
+    </div>
+
+    <div id="toasts" class="fixed bottom-6 right-6 z-50 flex flex-col gap-3"></div>
+
+    <div id="preview-modal" class="fixed inset-0 z-40 hidden items-center justify-center bg-slate-950/70 backdrop-blur">
+        <div class="glass-panel relative w-[min(90vw,900px)] p-6">
+            <button id="modal-close" class="absolute right-4 top-4 flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-white/10 text-lg text-white transition hover:bg-white/20" aria-label="Close preview">&times;</button>
+            <h3 class="text-lg font-semibold text-white">Stream preview</h3>
+            <video id="modal-video" controls preload="metadata" class="mt-4 aspect-video w-full rounded-2xl border border-white/10 bg-black shadow-xl"></video>
+        </div>
+    </div>
+
+    <script>
+        document.addEventListener("DOMContentLoaded", () => {
+            const tabButtons = Array.from(document.querySelectorAll(".tab-button"));
+            const tabPanels = Array.from(document.querySelectorAll(".tab-panel"));
+            function activateTab(target) {
+                tabButtons.forEach((btn) => {
+                    const isActive = btn.dataset.tab === target;
+                    btn.setAttribute("aria-selected", String(isActive));
+                });
+                tabPanels.forEach((panel) => {
+                    const isActive = panel.dataset.tabPanel === target;
+                    panel.classList.toggle("hidden", !isActive);
+                });
+            }
+            tabButtons.forEach((btn) => {
+                btn.addEventListener("click", () => {
+                    activateTab(btn.dataset.tab);
+                });
+            });
+
+            const modelsToggle = document.getElementById("models-panel-toggle");
+            const modelsPanel = document.getElementById("models-panel");
+            if (modelsToggle && modelsPanel) {
+                modelsToggle.addEventListener("click", () => {
+                    const nowOpen = modelsPanel.classList.toggle("hidden");
+                    modelsToggle.setAttribute("aria-expanded", String(!nowOpen));
+                });
+            }
+
+            document.querySelectorAll("[data-preview-modal]").forEach((btn) => {
+                btn.addEventListener("click", () => {
+                    const preview = document.getElementById("preview-player");
+                    const modalVideo = document.getElementById("modal-video");
+                    const modal = document.getElementById("preview-modal");
+                    if (!preview || !modalVideo || !modal) return;
+                    modalVideo.src = preview.currentSrc || preview.src;
+                    modal.classList.remove("hidden");
+                    modalVideo.play().catch(() => {});
+                });
+            });
+        });
+    </script>
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

@@ -1,6 +1,7 @@
 from pathlib import Path
 from typing import Callable
 
+import cv2
 import ffmpeg
 import numpy as np
 from loguru import logger
@@ -37,6 +38,7 @@ class SoraWM:
             "vcodec": "libx264",
             "preset": "slow",  
         }
+        output_options["r"] = fps
         
         if input_video_loader.original_bitrate:
             output_options["video_bitrate"] = str(int(int(input_video_loader.original_bitrate) * 1.2))
@@ -67,10 +69,13 @@ class SoraWM:
             tqdm(input_video_loader, total=total_frames, desc="Detect watermarks")
         ):
             detection_result = self.detector.detect(frame)
-            if detection_result["detected"]:
-                frame_and_mask[idx] = {"frame": frame, "bbox": detection_result["bbox"]}
+            if detection_result["detected"] and detection_result.get("detections"):
+                frame_and_mask[idx] = {
+                    "frame": frame,
+                    "detections": detection_result["detections"],
+                }
             else:
-                frame_and_mask[idx] = {"frame": frame, "bbox": None}
+                frame_and_mask[idx] = {"frame": frame, "detections": None}
                 detect_missed.append(idx)
 
             # 10% - 50%
@@ -83,22 +88,71 @@ class SoraWM:
         for missed_idx in detect_missed:
             before = max(missed_idx - 1, 0)
             after = min(missed_idx + 1, total_frames - 1)
-            before_box = frame_and_mask[before]["bbox"]
-            after_box = frame_and_mask[after]["bbox"]
-            if before_box:
-                frame_and_mask[missed_idx]["bbox"] = before_box
-            elif after_box:
-                frame_and_mask[missed_idx]["bbox"] = after_box
+            before_det = frame_and_mask[before]["detections"]
+            after_det = frame_and_mask[after]["detections"]
+            if before_det:
+                frame_and_mask[missed_idx]["detections"] = [dict(d) for d in before_det]
+            elif after_det:
+                frame_and_mask[missed_idx]["detections"] = [dict(d) for d in after_det]
 
         for idx in tqdm(range(total_frames), desc="Remove watermarks"):
             frame_info = frame_and_mask[idx]
             frame = frame_info["frame"]
-            bbox = frame_info["bbox"]
-            if bbox is not None:
-                x1, y1, x2, y2 = bbox
+            detections = frame_info["detections"]
+            if detections:
                 mask = np.zeros((height, width), dtype=np.uint8)
-                mask[y1:y2, x1:x2] = 255
-                cleaned_frame = self.cleaner.clean(frame, mask)
+                for det in detections:
+                    x1, y1, x2, y2 = det["bbox"]
+                    cls_id = det.get("class", 0)
+                    x1_clamped = max(0, min(width, x1))
+                    x2_clamped = max(0, min(width, x2))
+                    y1_clamped = max(0, min(height, y1))
+                    y2_clamped = max(0, min(height, y2))
+                    if x2_clamped <= x1_clamped or y2_clamped <= y1_clamped:
+                        continue
+                    w = x2_clamped - x1_clamped
+                    h = y2_clamped - y1_clamped
+                    if cls_id == 1:  # text region
+                        pad_left = max(4, int(w * 0.12))
+                        pad_right = max(5, int(w * 0.14))
+                        pad_y = max(4, int(h * 0.16))
+                    else:  # icon or fallback
+                        pad_left = max(6, int(w * 0.18))
+                        pad_right = max(6, int(w * 0.18))
+                        pad_y = max(6, int(h * 0.2))
+                    x1_p = max(0, x1_clamped - pad_left)
+                    x2_p = min(width, x2_clamped + pad_right)
+                    y1_p = max(0, y1_clamped - pad_y)
+                    y2_p = min(height, y2_clamped + pad_y)
+                    mask[y1_p:y2_p, x1_p:x2_p] = 255
+
+                kernel_width = max(5, int(width * 0.008)) | 1
+                kernel_height = max(5, int(height * 0.01)) | 1
+                dilation_kernel = cv2.getStructuringElement(
+                    cv2.MORPH_RECT, (kernel_width, kernel_height)
+                )
+                mask = cv2.dilate(mask, dilation_kernel, iterations=1)
+
+                erosion_kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (3, 3))
+                inpaint_mask = cv2.erode(mask, erosion_kernel, iterations=1)
+                if not inpaint_mask.any():
+                    inpaint_mask = mask
+
+                cleaned = self.cleaner.clean(frame, inpaint_mask)
+
+                mask_float = mask.astype(np.float32) / 255.0
+                feather = cv2.GaussianBlur(
+                    mask_float,
+                    (0, 0),
+                    sigmaX=max(1.2, width * 0.0035),
+                    sigmaY=max(1.2, height * 0.0035),
+                )
+                feather = np.clip(feather[..., None], 0.0, 1.0)
+
+                cleaned_frame = (
+                    feather * cleaned.astype(np.float32)
+                    + (1.0 - feather) * frame.astype(np.float32)
+                ).astype(np.uint8)
             else:
                 cleaned_frame = frame
             process_out.stdin.write(cleaned_frame.tobytes())

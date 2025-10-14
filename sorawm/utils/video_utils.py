@@ -1,5 +1,8 @@
 from pathlib import Path
+from typing import Tuple
 
+import base64
+import cv2
 import ffmpeg
 import numpy as np
 
@@ -55,6 +58,92 @@ class VideoLoader:
             if process_in.stderr:
                 process_in.stderr.close()
             process_in.wait()
+
+
+def capture_frame(video_path: Path, timestamp: float) -> Tuple[np.ndarray, float]:
+    """
+    Return the frame at ``timestamp`` seconds and the actual timestamp captured.
+    """
+    cap = cv2.VideoCapture(str(video_path))
+    if not cap.isOpened():
+        raise RuntimeError(f"Unable to open video: {video_path}")
+
+    try:
+        target_ms = max(timestamp, 0.0) * 1000.0
+        cap.set(cv2.CAP_PROP_POS_MSEC, target_ms)
+        success, frame = cap.read()
+        if not success or frame is None:
+            fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+            fallback_index = int(max(timestamp * fps, 0))
+            cap.set(cv2.CAP_PROP_POS_FRAMES, fallback_index)
+            success, frame = cap.read()
+        if not success or frame is None:
+            raise RuntimeError("Failed to capture frame at the requested timestamp.")
+        actual_timestamp = cap.get(cv2.CAP_PROP_POS_MSEC) / 1000.0
+        return frame, actual_timestamp
+    finally:
+        cap.release()
+
+
+def frame_to_base64(frame: np.ndarray) -> str:
+    success, buffer = cv2.imencode(".jpg", frame)
+    if not success:
+        raise RuntimeError("Failed to encode frame as JPEG.")
+    return "data:image/jpeg;base64," + base64.b64encode(buffer.tobytes()).decode("ascii")
+
+
+def save_frame_image(video_path: Path, destination: Path, timestamp: float) -> Tuple[int, int, float]:
+    """
+    Save the frame at ``timestamp`` to ``destination``.
+    Returns (width, height, actual_timestamp).
+    """
+    frame, actual_timestamp = capture_frame(video_path, timestamp)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    cv2.imwrite(str(destination), frame)
+    height, width = frame.shape[:2]
+    return width, height, actual_timestamp
+
+
+def get_video_metadata(video_path: Path) -> dict:
+    loader = VideoLoader(video_path)
+    duration = loader.total_frames / loader.fps if loader.fps else 0
+    return {
+        "width": loader.width,
+        "height": loader.height,
+        "fps": loader.fps,
+        "total_frames": loader.total_frames,
+        "duration": duration,
+    }
+
+
+def generate_thumbnail(
+    video_path: Path,
+    destination: Path,
+    *,
+    timestamp: float = 1.0,
+    width: int = 360,
+) -> None:
+    """
+    Save a single-frame thumbnail for the given video.
+
+    Args:
+        video_path: Source video file.
+        destination: Target image path.
+        timestamp: Seconds into the video to capture.
+        width: Output width in pixels, preserves aspect ratio.
+    """
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        (
+            ffmpeg.input(str(video_path), ss=max(timestamp, 0))
+            .filter("scale", width, -1)
+            .output(str(destination), vframes=1)
+            .overwrite_output()
+            .global_args("-loglevel", "error")
+            .run()
+        )
+    except ffmpeg.Error as exc:  # pragma: no cover - defensive
+        raise RuntimeError(f"Failed to generate thumbnail: {exc}") from exc
 
 
 if __name__ == "__main__":

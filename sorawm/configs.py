@@ -25,3 +25,26 @@ DATA_PATH = ROOT / "data"
 DATA_PATH.mkdir(exist_ok=True, parents=True)
 
 SQLITE_PATH = DATA_PATH / "db.sqlite3"
+
+THUMBNAILS_DIR = WORKING_DIR / "thumbnails"
+THUMBNAILS_DIR.mkdir(exist_ok=True, parents=True)
+
+FRAMES_DIR = WORKING_DIR / "frames"
+FRAMES_DIR.mkdir(exist_ok=True, parents=True)
+
+ANNOTATIONS_DIR = ROOT / "datasets" / "manual_annotations"
+ANNOTATIONS_DIR.mkdir(exist_ok=True, parents=True)
+
+ANNOTATION_IMAGES_DIR = ANNOTATIONS_DIR / "images"
+ANNOTATION_IMAGES_DIR.mkdir(exist_ok=True, parents=True)
+
+ANNOTATION_LABELS_DIR = ANNOTATIONS_DIR / "labels"
+ANNOTATION_LABELS_DIR.mkdir(exist_ok=True, parents=True)
+
+ANNOTATION_DATA_YAML = ANNOTATIONS_DIR / "data.yaml"
+
+BACKUPS_DIR = ROOT / "backups"
+BACKUPS_DIR.mkdir(exist_ok=True, parents=True)
+
+BASE_MODEL_PATH = RESOURCES_DIR / "best_original.pt"
+ACTIVE_MODEL_PATH = RESOURCES_DIR / "best.pt"

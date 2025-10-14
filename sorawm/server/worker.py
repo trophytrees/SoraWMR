@@ -7,11 +7,12 @@ from uuid import uuid4
 from loguru import logger
 from sqlalchemy import select
 
-from sorawm.configs import WORKING_DIR
+from sorawm.configs import THUMBNAILS_DIR, WORKING_DIR
 from sorawm.core import SoraWM
 from sorawm.server.db import get_session
 from sorawm.server.models import Task
 from sorawm.server.schemas import Status, WMRemoveResults
+from sorawm.utils.video_utils import generate_thumbnail
 
 
 class WMRemoveTaskWorker:
@@ -21,12 +22,21 @@ class WMRemoveTaskWorker:
         self.output_dir = WORKING_DIR
         self.upload_dir = WORKING_DIR / "uploads"
         self.upload_dir.mkdir(exist_ok=True, parents=True)
+        self.thumbnail_dir = THUMBNAILS_DIR
+        self.thumbnail_dir.mkdir(exist_ok=True, parents=True)
+        self._reload_lock = asyncio.Lock()
 
     async def initialize(self):
         logger.info("Initializing SoraWM models...")
-        self.sora_wm = SoraWM()
+        await self.reload_models(initial=True)
         logger.info("SoraWM models initialized")
 
+
+    async def reload_models(self, initial: bool = False):
+        async with self._reload_lock:
+            logger.info("%s SoraWM models...", "Loading" if initial else "Reloading")
+            self.sora_wm = SoraWM()
+            logger.info("SoraWM models %s", "loaded" if initial else "reloaded")
     async def create_task(self) -> str:
         task_uuid = str(uuid4())
         async with get_session() as session:
@@ -100,6 +110,18 @@ class WMRemoveTaskWorker:
                     task.percentage = 100
                     task.output_path = str(output_path)
                     task.download_url = f"/download/{task_uuid}"
+
+                thumb_path = self.thumbnail_dir / f"{output_path.stem}.jpg"
+                try:
+                    await asyncio.to_thread(
+                        generate_thumbnail,
+                        output_path,
+                        thumb_path,
+                        timestamp=1.5,
+                        width=420,
+                    )
+                except Exception as exc:  # pragma: no cover - best effort
+                    logger.warning("Thumbnail generation failed for %s: %s", output_path, exc)
 
                 logger.info(
                     f"Task {task_uuid} completed successfully, output: {output_path}"

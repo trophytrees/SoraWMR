@@ -13,7 +13,7 @@ from sorawm.utils.video_utils import VideoLoader
 
 
 class SoraWaterMarkDetector:
-    def __init__(self):
+    def __init__(self, conf_threshold: float = 0.25, iou_threshold: float = 0.9):
         download_detector_weights()
         logger.debug(f"Begin to load yolo water mark detet model.")
         self.model = YOLO(WATER_MARK_DETECT_YOLO_WEIGHTS)
@@ -21,35 +21,56 @@ class SoraWaterMarkDetector:
         logger.debug(f"Yolo water mark detet model loaded.")
 
         self.model.eval()
+        self.conf_threshold = conf_threshold
+        self.iou_threshold = iou_threshold
 
     def detect(self, input_image: np.array):
         # Run YOLO inference
-        results = self.model(input_image, verbose=False)
+        results = self.model(
+            input_image,
+            verbose=False,
+            conf=self.conf_threshold,
+            iou=self.iou_threshold,
+        )
         # Extract predictions from the first (and only) result
         result = results[0]
 
-        # Check if any detections were made
         if len(result.boxes) == 0:
-            return {"detected": False, "bbox": None, "confidence": None, "center": None}
+            return {
+                "detected": False,
+                "bbox": None,
+                "bboxes": [],
+                "confidence": None,
+                "center": None,
+            }
 
-        # Get the first detection (highest confidence)
-        box = result.boxes[0]
+        detections = []
+        for box in result.boxes:
+            xyxy = box.xyxy[0].cpu().numpy()
+            x1, y1, x2, y2 = map(float, xyxy)
+            conf = float(box.conf[0].cpu().numpy())
+            center_x = (x1 + x2) / 2
+            center_y = (y1 + y2) / 2
+            cls_id = int(box.cls[0].cpu().numpy()) if hasattr(box, "cls") else 0
+            detections.append(
+                {
+                    "bbox": (int(x1), int(y1), int(x2), int(y2)),
+                    "class": cls_id,
+                    "confidence": conf,
+                    "center": (int(center_x), int(center_y)),
+                }
+            )
 
-        # Extract bounding box coordinates (xyxy format)
-        # Convert tensor to numpy, then to python float, finally to int
-        xyxy = box.xyxy[0].cpu().numpy()
-        x1, y1, x2, y2 = float(xyxy[0]), float(xyxy[1]), float(xyxy[2]), float(xyxy[3])
-        # Extract confidence score
-        confidence = float(box.conf[0].cpu().numpy())
-        # Calculate center point
-        center_x = (x1 + x2) / 2
-        center_y = (y1 + y2) / 2
+        # Sort by confidence descending to keep compatibility with previous single-box API
+        detections.sort(key=lambda d: d["confidence"], reverse=True)
 
         return {
             "detected": True,
-            "bbox": (int(x1), int(y1), int(x2), int(y2)),
-            "confidence": confidence,
-            "center": (int(center_x), int(center_y)),
+            "bbox": detections[0]["bbox"],
+            "bboxes": [d["bbox"] for d in detections],
+            "confidence": detections[0]["confidence"],
+            "center": detections[0]["center"],
+            "detections": detections,
         }
 
 

@@ -112,6 +112,14 @@ Once finished, the returned data will include a **download URL**.
 
 You can use the **download URL** from step 2 to retrieve the cleaned video.
 
+### Inline Annotation & Fine-tuning
+
+The dashboard also ships with an **Annotation Studio** so you can keep improving the detector without leaving the app:
+- Pull any uploaded video into the studio, scrub to a tricky frame, and draw boxes over the missed watermark pieces.
+- Saving writes the frame and YOLO labels to `datasets/manual_annotations/` and bumps the dataset counter in the UI.
+- Point the built-in finetuning form at `datasets/manual_annotations/data.yaml` to retrain on the new samples.
+
+Each manual save updates the dataset summary so it's easy to judge when you have enough examples for a new training run.
 
 
 ## 5. API
@@ -140,3 +148,7 @@ If you use this project, please cite:
 
 - [IOPaint](https://github.com/Sanster/IOPaint) for the LAMA implementation
 - [Ultralytics YOLO](https://github.com/ultralytics/ultralytics) for object detection
+
+## 9. Fine-tuning Helpers
+
+Need to harvest missed detections or back up assets before retraining? See `docs/fine_tune_workflow.md` for scripts that automate the loop without altering the current app.
